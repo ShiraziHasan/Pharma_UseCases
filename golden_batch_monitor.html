@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Golden Batch vs Current Batch Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;margin:0;color:#222;display:flex}
+  .sidebar{width:280px;min-height:100vh;background:#0d5c4d;color:#fff;padding:20px;box-sizing:border-box}
+  .sidebar h2{font-size:16px;margin-top:0}
+  .sidebar .group{margin-top:22px;padding-top:14px;border-top:1px solid rgba(255,255,255,.15)}
+  .sidebar .group-title{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#a8e6d4;margin-bottom:6px}
+  .sidebar label{display:block;margin-top:14px;font-size:13px}
+  .sidebar input[type=range]{width:100%;margin-top:6px}
+  .sidebar .val{float:right;font-weight:bold;color:#a8e6d4}
+  .sidebar .golden{color:#ffd76a;font-size:11px}
+  .main{flex:1;padding:20px}
+  h1{color:#0d5c4d;font-size:22px;display:flex;align-items:center;gap:10px;margin-top:0}
+  .live-dot{width:10px;height:10px;border-radius:50%;background:#2ecc71;display:inline-block;animation:pulse 1.5s infinite}
+  @keyframes pulse{0%{opacity:1}50%{opacity:.3}100%{opacity:1}}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:920px}
+  .card{background:#fff;border-radius:10px;padding:18px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+  .card.full{max-width:920px;margin-top:20px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:920px;margin-bottom:20px}
+  .kpi{background:#fff;border-radius:10px;padding:16px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.08);transition:background .3s}
+  .kpi .num{font-size:26px;font-weight:bold;color:#0d5c4d}
+  .kpi .lbl{font-size:12px;color:#555;margin-top:4px}
+  .flash{background:#e6f7f0!important}
+  .flash-bad{background:#fdeaea!important}
+  .updated{font-size:12px;color:#888;text-align:right;max-width:920px;margin-bottom:6px}
+  .reset{margin-top:24px;width:100%;padding:8px;background:#fff;color:#0d5c4d;border:none;border-radius:6px;font-weight:bold;cursor:pointer}
+  .status-banner{max-width:920px;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:bold;margin-bottom:16px;text-align:center}
+  .status-good{background:#d4f7e5;color:#0d5c4d}
+  .status-warn{background:#fff3cd;color:#7a5c00}
+  .status-bad{background:#fdeaea;color:#a33;}
+  .paramtable{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+  .paramtable th,.paramtable td{padding:6px 8px;border-bottom:1px solid #eee;text-align:left}
+  .inband{color:#0d5c4d;font-weight:bold}
+  .outband{color:#c0392b;font-weight:bold}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>Batch Process Controls</h2>
+  <div class="golden">Golden batch target shown under each slider</div>
+
+  <div class="group">
+    <div class="group-title">Thermal / pH</div>
+    <label>Temperature (°C) — target 36.5 <span class="val" id="s1v">36.5</span>
+      <input type="range" id="s1" min="30" max="42" step="0.1" value="36.5">
+    </label>
+    <label>pH — target 6.8 <span class="val" id="s2v">6.8</span>
+      <input type="range" id="s2" min="5.5" max="8" step="0.05" value="6.8">
+    </label>
+  </div>
+
+  <div class="group">
+    <div class="group-title">Agitation / Aeration</div>
+    <label>Agitation (RPM) — target 250 <span class="val" id="s3v">250</span>
+      <input type="range" id="s3" min="100" max="400" step="5" value="250">
+    </label>
+    <label>Dissolved O2 (%) — target 40 <span class="val" id="s4v">40</span>
+      <input type="range" id="s4" min="10" max="90" step="1" value="40">
+    </label>
+  </div>
+
+  <div class="group">
+    <div class="group-title">Feed / Pressure</div>
+    <label>Feed Rate (L/hr) — target 12 <span class="val" id="s5v">12</span>
+      <input type="range" id="s5" min="2" max="25" step="0.5" value="12">
+    </label>
+    <label>Vessel Pressure (bar) — target 1.2 <span class="val" id="s6v">1.2</span>
+      <input type="range" id="s6" min="0.5" max="2.5" step="0.05" value="1.2">
+    </label>
+  </div>
+
+  <div class="group">
+    <label>Refresh Rate (sec) <span class="val" id="s7v">3</span>
+      <input type="range" id="s7" min="1" max="10" value="3">
+    </label>
+  </div>
+
+  <button class="reset" onclick="location.reload()">Reset to Golden Batch</button>
+</div>
+
+<div class="main">
+<h1><span class="live-dot"></span>Golden Batch vs Current Batch — Live Comparison</h1>
+<div class="updated">Batch time elapsed: <span id="batchTime">0</span> min | Last updated: <span id="ts">--</span></div>
+
+<div class="status-banner status-good" id="statusBanner">Batch tracking within golden envelope</div>
+
+<div class="kpis">
+  <div class="kpi" id="k1"><div class="num" id="k1v">98.5%</div><div class="lbl">Batch Similarity Index</div></div>
+  <div class="kpi" id="k2"><div class="num" id="k2v">6/6</div><div class="lbl">Parameters In-Band</div></div>
+  <div class="kpi" id="k3"><div class="num" id="k3v">92%</div><div class="lbl">Predicted Yield vs Golden</div></div>
+  <div class="kpi" id="k4"><div class="num" id="k4v">Low</div><div class="lbl">Deviation Risk Level</div></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>Parameter Profile — Golden vs Current</h3>
+    <canvas id="radarChart"></canvas>
+  </div>
+  <div class="card">
+    <h3>In-Band / Out-of-Band Status</h3>
+    <table class="paramtable" id="paramTable">
+      <tr><th>Parameter</th><th>Golden</th><th>Current</th><th>Status</th></tr>
+    </table>
+  </div>
+</div>
+
+<div class="card full">
+  <h3>Temperature Trajectory — Golden Batch Envelope vs Current Batch (last 30 readings)</h3>
+  <canvas id="lineChart"></canvas>
+</div>
+
+</div>
+
+<script>
+// ---- Golden batch reference (from best historical batch / process design space) ----
+const golden = { temp:36.5, ph:6.8, agit:250, do2:40, feed:12, pressure:1.2 };
+// realistic tolerance bands (± acceptable range, from process characterization)
+const tolerance = { temp:0.8, ph:0.3, agit:20, do2:8, feed:2, pressure:0.15 };
+
+let tempHistory = Array.from({length:30}, ()=> golden.temp + (Math.random()*0.6-0.3));
+let batchMinutes = 0;
+
+const radarChart = new Chart(document.getElementById('radarChart'), {
+  type: 'radar',
+  data: {
+    labels: ['Temp','pH','Agitation','DO2','Feed Rate','Pressure'],
+    datasets: [
+      { label:'Golden Batch', data:[100,100,100,100,100,100], borderColor:'#ffb703', backgroundColor:'rgba(255,183,3,0.15)', pointBackgroundColor:'#ffb703' },
+      { label:'Current Batch', data:[100,100,100,100,100,100], borderColor:'#0d5c4d', backgroundColor:'rgba(13,92,77,0.2)', pointBackgroundColor:'#0d5c4d' }
+    ]
+  },
+  options: { responsive:true, animation:{duration:300}, scales:{ r:{ min:0, max:120, ticks:{display:false} } } }
+});
+
+const lineChart = new Chart(document.getElementById('lineChart'), {
+  type: 'line',
+  data: {
+    labels: tempHistory.map((_,i)=>i+1),
+    datasets: [
+      { label:'Golden Upper Limit', data: tempHistory.map(()=> golden.temp+tolerance.temp), borderColor:'#ffd76a', borderDash:[5,5], pointRadius:0 },
+      { label:'Golden Lower Limit', data: tempHistory.map(()=> golden.temp-tolerance.temp), borderColor:'#ffd76a', borderDash:[5,5], pointRadius:0, fill:'-1', backgroundColor:'rgba(255,215,106,0.15)' },
+      { label:'Current Batch Temp', data: tempHistory, borderColor:'#0d5c4d', backgroundColor:'rgba(13,92,77,0.1)', tension:0.3 }
+    ]
+  },
+  options: { responsive:true, animation:{duration:300}, scales:{ y:{ suggestedMin:32, suggestedMax:41 } } }
+});
+
+function flash(id, ok){ const el=document.getElementById(id); el.classList.add(ok?'flash':'flash-bad'); setTimeout(()=>el.classList.remove('flash','flash-bad'),700); }
+function pctScore(current, target, tol){
+  const dev = Math.abs(current-target);
+  return Math.max(0, 100 - (dev/tol)*40); // 100 at target, degrades as it leaves tolerance
+}
+
+function getParams(){
+  return {
+    temp: +document.getElementById('s1').value,
+    ph: +document.getElementById('s2').value,
+    agit: +document.getElementById('s3').value,
+    do2: +document.getElementById('s4').value,
+    feed: +document.getElementById('s5').value,
+    pressure: +document.getElementById('s6').value,
+    refresh: +document.getElementById('s7').value
+  };
+}
+
+let timer;
+// ---- In production, replace this with a live read from historian/SCADA tags for the current batch ----
+function updateDashboard(){
+  const p = getParams();
+  batchMinutes += p.refresh/6; // simulate elapsed batch time
+
+  // small natural process noise on top of operator/control setpoints
+  const noisyTemp = p.temp + (Math.random()*0.3-0.15);
+  const noisyPh = p.ph + (Math.random()*0.06-0.03);
+  const noisyAgit = p.agit + (Math.random()*6-3);
+  const noisyDo2 = p.do2 + (Math.random()*2-1);
+  const noisyFeed = p.feed + (Math.random()*0.4-0.2);
+  const noisyPressure = p.pressure + (Math.random()*0.04-0.02);
+
+  const scores = {
+    temp: pctScore(noisyTemp, golden.temp, tolerance.temp),
+    ph: pctScore(noisyPh, golden.ph, tolerance.ph),
+    agit: pctScore(noisyAgit, golden.agit, tolerance.agit),
+    do2: pctScore(noisyDo2, golden.do2, tolerance.do2),
+    feed: pctScore(noisyFeed, golden.feed, tolerance.feed),
+    pressure: pctScore(noisyPressure, golden.pressure, tolerance.pressure)
+  };
+
+  const similarity = (scores.temp+scores.ph+scores.agit+scores.do2+scores.feed+scores.pressure)/6;
+  const inBandCount = Object.values(scores).filter(s=>s>=80).length;
+  const predictedYield = 60 + (similarity/100)*38; // rough yield model tied to similarity
+  const riskLevel = similarity>=90 ? 'Low' : similarity>=75 ? 'Medium' : 'High';
+
+  // radar chart update
+  radarChart.data.datasets[1].data = [scores.temp,scores.ph,scores.agit,scores.do2,scores.feed,scores.pressure];
+  radarChart.update();
+
+  // temp trend line update
+  tempHistory.push(noisyTemp);
+  tempHistory.shift();
+  lineChart.data.labels = tempHistory.map((_,i)=>i+1);
+  lineChart.data.datasets[2].data = tempHistory;
+  lineChart.update();
+
+  // KPI cards
+  document.getElementById('k1v').textContent = similarity.toFixed(1) + '%';
+  document.getElementById('k2v').textContent = inBandCount + '/6';
+  document.getElementById('k3v').textContent = predictedYield.toFixed(0) + '%';
+  document.getElementById('k4v').textContent = riskLevel;
+  flash('k1', similarity>=90);
+  flash('k2', inBandCount===6);
+  flash('k4', riskLevel==='Low');
+
+  // status banner
+  const banner = document.getElementById('statusBanner');
+  if(similarity>=90){ banner.className='status-banner status-good'; banner.textContent='Batch tracking within golden envelope'; }
+  else if(similarity>=75){ banner.className='status-banner status-warn'; banner.textContent='Batch drifting — parameters approaching tolerance limits'; }
+  else { banner.className='status-banner status-bad'; banner.textContent='⚠ Batch deviating from golden profile — operator review recommended'; }
+
+  // param table
+  const rows = [
+    ['Temperature (°C)', golden.temp, noisyTemp, scores.temp],
+    ['pH', golden.ph, noisyPh, scores.ph],
+    ['Agitation (RPM)', golden.agit, noisyAgit, scores.agit],
+    ['Dissolved O2 (%)', golden.do2, noisyDo2, scores.do2],
+    ['Feed Rate (L/hr)', golden.feed, noisyFeed, scores.feed],
+    ['Pressure (bar)', golden.pressure, noisyPressure, scores.pressure]
+  ];
+  const table = document.getElementById('paramTable');
+  table.innerHTML = '<tr><th>Parameter</th><th>Golden</th><th>Current</th><th>Status</th></tr>' +
+    rows.map(r=>{
+      const inband = r[3]>=80;
+      return `<tr><td>${r[0]}</td><td>${r[1].toFixed(2)}</td><td>${r[2].toFixed(2)}</td><td class="${inband?'inband':'outband'}">${inband?'✓ In-Band':'✗ Out-of-Band'}</td></tr>`;
+    }).join('');
+
+  // slider labels
+  document.getElementById('s1v').textContent = p.temp.toFixed(1);
+  document.getElementById('s2v').textContent = p.ph.toFixed(2);
+  document.getElementById('s3v').textContent = p.agit;
+  document.getElementById('s4v').textContent = p.do2;
+  document.getElementById('s5v').textContent = p.feed;
+  document.getElementById('s6v').textContent = p.pressure.toFixed(2);
+  document.getElementById('s7v').textContent = p.refresh;
+
+  document.getElementById('batchTime').textContent = batchMinutes.toFixed(0);
+  document.getElementById('ts').textContent = new Date().toLocaleTimeString('en-IN');
+
+  clearTimeout(timer);
+  timer = setTimeout(updateDashboard, p.refresh*1000);
+}
+
+['s1','s2','s3','s4','s5','s6','s7'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', ()=>{ clearTimeout(timer); updateDashboard(); });
+});
+
+updateDashboard();
+</script>
+</body>
+</html>
