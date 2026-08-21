@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Real-Time Decision-Making KPI Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;margin:0;color:#222;display:flex}
+  .sidebar{width:270px;min-height:100vh;background:#b45309;color:#fff;padding:20px;box-sizing:border-box}
+  .sidebar h2{font-size:16px;margin-top:0}
+  .sidebar label{display:block;margin-top:18px;font-size:13px}
+  .sidebar input[type=range]{width:100%;margin-top:6px}
+  .sidebar .val{float:right;font-weight:bold;color:#ffe0b3}
+  .main{flex:1;padding:20px}
+  h1{color:#b45309;font-size:22px;display:flex;align-items:center;gap:10px;margin-top:0}
+  .live-dot{width:10px;height:10px;border-radius:50%;background:#2ecc71;display:inline-block;animation:pulse 1.5s infinite}
+  @keyframes pulse{0%{opacity:1}50%{opacity:.3}100%{opacity:1}}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px}
+  .card{background:#fff;border-radius:10px;padding:18px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+  .card.full{max-width:900px;margin-top:20px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:900px;margin-bottom:20px}
+  .kpi{background:#fff;border-radius:10px;padding:16px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.08);transition:background .3s}
+  .kpi .num{font-size:26px;font-weight:bold;color:#b45309}
+  .kpi .lbl{font-size:12px;color:#555;margin-top:4px}
+  .flash{background:#fdf1e0!important}
+  .updated{font-size:12px;color:#888;text-align:right;max-width:900px;margin-bottom:6px}
+  .reset{margin-top:24px;width:100%;padding:8px;background:#fff;color:#b45309;border:none;border-radius:6px;font-weight:bold;cursor:pointer}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>Analytics Controls</h2>
+
+  <label>Analytics Sensitivity (alert threshold) <span class="val" id="s1v">Med</span>
+    <input type="range" id="s1" min="1" max="3" value="2">
+  </label>
+
+  <label>Operator Alert Load <span class="val" id="s2v">Med</span>
+    <input type="range" id="s2" min="1" max="3" value="2">
+  </label>
+
+  <label>Process Volatility (plant floor) <span class="val" id="s3v">Med</span>
+    <input type="range" id="s3" min="1" max="3" value="2">
+  </label>
+
+  <label>Predictive Maintenance Coverage <span class="val" id="s4v">Med</span>
+    <input type="range" id="s4" min="1" max="3" value="2">
+  </label>
+
+  <label>Refresh Rate (sec) <span class="val" id="s5v">4</span>
+    <input type="range" id="s5" min="1" max="10" value="4">
+  </label>
+
+  <button class="reset" onclick="location.reload()">Reset to Baseline</button>
+</div>
+
+<div class="main">
+<h1><span class="live-dot"></span>Near Real-Time Decision-Making — Live Dashboard</h1>
+<div class="updated">Last updated: <span id="ts">--</span></div>
+
+<div class="kpis">
+  <div class="kpi" id="k1"><div class="num" id="k1v">0.9 hrs</div><div class="lbl">Time to Detect Deviation</div></div>
+  <div class="kpi" id="k2"><div class="num" id="k2v">32%</div><div class="lbl">Downtime Reduction (Live)</div></div>
+  <div class="kpi" id="k3"><div class="num" id="k3v">18 min</div><div class="lbl">Alert-to-Action Time</div></div>
+  <div class="kpi" id="k4"><div class="num" id="k4v">96%</div><div class="lbl">Alerts Actioned (24 hr)</div></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>Time to Detect & Act on Deviation (hrs) — Live</h3>
+    <canvas id="barChart"></canvas>
+  </div>
+  <div class="card">
+    <h3>Downtime Causes Reduced by Real-Time Alerts</h3>
+    <canvas id="pieChart"></canvas>
+  </div>
+</div>
+
+<div class="card full">
+  <h3>Live Sensor Trend — Alert-to-Action Latency (last 20 readings, minutes)</h3>
+  <canvas id="lineChart"></canvas>
+</div>
+</div>
+
+<script>
+const causeLabels = ['Temp/pH excursion','Contamination alert','Equipment fault','Batch trend deviation'];
+let before = [6,8,5,10];
+let after  = [0.5,1,0.8,1.5];
+const levelWords = {1:'Low',2:'Med',3:'High'};
+
+const barChart = new Chart(document.getElementById('barChart'), {
+  type: 'bar',
+  data: { labels: causeLabels, datasets: [
+    {label:'Before (manual review)', data: before, backgroundColor:'#e76f51'},
+    {label:'After (real-time analytics)', data: after, backgroundColor:'#2a9d8f'}
+  ]},
+  options: { responsive:true, animation:{duration:400}, scales:{ y:{ beginAtZero:true, title:{display:true,text:'Hours'} } } }
+});
+
+const pieChart = new Chart(document.getElementById('pieChart'), {
+  type: 'pie',
+  data: {
+    labels: ['Faster fault detection','Predictive maintenance alerts','Reduced sampling delay','Faster changeover decisions'],
+    datasets: [{ data:[35,30,20,15], backgroundColor:['#b45309','#d97706','#f59e0b','#fbbf24'] }]
+  },
+  options: { responsive:true, animation:{duration:400} }
+});
+
+let latencyHistory = Array.from({length:20}, ()=> 15 + Math.random()*10);
+const lineChart = new Chart(document.getElementById('lineChart'), {
+  type: 'line',
+  data: { labels: latencyHistory.map((_,i)=> i+1), datasets: [
+    { label:'Alert-to-action latency (min)', data: latencyHistory, borderColor:'#b45309', backgroundColor:'rgba(180,83,9,0.1)', fill:true, tension:0.3 }
+  ]},
+  options: { responsive:true, animation:{duration:300}, scales:{ y:{ beginAtZero:true } } }
+});
+
+function flash(id){ const el=document.getElementById(id); el.classList.add('flash'); setTimeout(()=>el.classList.remove('flash'),600); }
+function jitter(v, range, min, max){ let n = v + (Math.random()*2-1)*range; return Math.min(max, Math.max(min, n)); }
+
+let timer;
+function getParams(){
+  return {
+    sensitivity: +document.getElementById('s1').value,
+    alertLoad: +document.getElementById('s2').value,
+    volatility: +document.getElementById('s3').value,
+    predMaint: +document.getElementById('s4').value,
+    refresh: +document.getElementById('s5').value
+  };
+}
+
+// ---- In production, replace with WebSocket/fetch to SCADA/historian ----
+function getLiveData(p){
+  const sensFactor = (4 - p.sensitivity); // higher sensitivity => faster detection
+  after = after.map(v => jitter(v * (sensFactor/2), 0.15, 0.15, 3));
+  const detectTime = jitter(0.4 + sensFactor*0.3, 0.1, 0.2, 3);
+  const downtimeReduction = jitter(20 + p.sensitivity*10 + p.predMaint*5, 2, 10, 60);
+  const alertAction = jitter(10 + p.alertLoad*8, 2, 5, 50);
+  const actionedPct = jitter(99 - p.alertLoad*2, 1, 80, 100);
+  const newLatency = jitter(latencyHistory[latencyHistory.length-1] + (p.volatility-2)*2, 3, 5, 45);
+
+  const pieRaw = [
+    30 + p.sensitivity*8,
+    25 + p.predMaint*8,
+    20,
+    15
+  ];
+  const sum = pieRaw.reduce((a,b)=>a+b,0);
+  const pieNorm = pieRaw.map(v => +(v/sum*100).toFixed(1));
+
+  return { after, detectTime, downtimeReduction, alertAction, actionedPct, newLatency, pieNorm };
+}
+
+function updateDashboard(){
+  const p = getParams();
+  const d = getLiveData(p);
+
+  barChart.data.datasets[1].data = d.after;
+  barChart.update();
+
+  pieChart.data.datasets[0].data = d.pieNorm;
+  pieChart.update();
+
+  latencyHistory.push(d.newLatency);
+  latencyHistory.shift();
+  lineChart.data.datasets[0].data = latencyHistory;
+  lineChart.update();
+
+  document.getElementById('k1v').textContent = d.detectTime.toFixed(2) + ' hrs';
+  document.getElementById('k2v').textContent = d.downtimeReduction.toFixed(0) + '%';
+  document.getElementById('k3v').textContent = d.alertAction.toFixed(0) + ' min';
+  document.getElementById('k4v').textContent = d.actionedPct.toFixed(1) + '%';
+  ['k1','k2','k3','k4'].forEach(flash);
+
+  document.getElementById('s1v').textContent = levelWords[p.sensitivity];
+  document.getElementById('s2v').textContent = levelWords[p.alertLoad];
+  document.getElementById('s3v').textContent = levelWords[p.volatility];
+  document.getElementById('s4v').textContent = levelWords[p.predMaint];
+  document.getElementById('s5v').textContent = p.refresh;
+
+  document.getElementById('ts').textContent = new Date().toLocaleTimeString('en-IN');
+
+  clearTimeout(timer);
+  timer = setTimeout(updateDashboard, p.refresh*1000);
+}
+
+['s1','s2','s3','s4','s5'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', ()=>{ clearTimeout(timer); updateDashboard(); });
+});
+
+updateDashboard();
+</script>
+</body>
+</html>
