@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Process Yield KPI Dashboard (Live)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;margin:0;color:#222;display:flex}
+  .sidebar{width:270px;min-height:100vh;background:#0b5394;color:#fff;padding:20px;box-sizing:border-box}
+  .sidebar h2{font-size:16px;margin-top:0}
+  .sidebar label{display:block;margin-top:18px;font-size:13px}
+  .sidebar input[type=range]{width:100%;margin-top:6px}
+  .sidebar .val{float:right;font-weight:bold;color:#a8d8ff}
+  .main{flex:1;padding:20px}
+  h1{color:#0b5394;font-size:22px;display:flex;align-items:center;gap:10px;margin-top:0}
+  .live-dot{width:10px;height:10px;border-radius:50%;background:#2ecc71;display:inline-block;animation:pulse 1.5s infinite}
+  @keyframes pulse{0%{opacity:1}50%{opacity:.3}100%{opacity:1}}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px}
+  .card{background:#fff;border-radius:10px;padding:18px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:900px;margin-bottom:20px}
+  .kpi{background:#fff;border-radius:10px;padding:16px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.08);transition:background .3s}
+  .kpi .num{font-size:26px;font-weight:bold;color:#0b5394}
+  .kpi .lbl{font-size:12px;color:#555;margin-top:4px}
+  .flash{background:#eaf7ee!important}
+  .updated{font-size:12px;color:#888;text-align:right;max-width:900px;margin-bottom:6px}
+  .reset{margin-top:24px;width:100%;padding:8px;background:#fff;color:#0b5394;border:none;border-radius:6px;font-weight:bold;cursor:pointer}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>Process Controls</h2>
+
+  <label>Target Yield Setpoint (%) <span class="val" id="s1v">80</span>
+    <input type="range" id="s1" min="50" max="99" value="80">
+  </label>
+
+  <label>Raw Material Variability <span class="val" id="s2v">Med</span>
+    <input type="range" id="s2" min="1" max="3" value="2">
+  </label>
+
+  <label>Equipment Downtime Factor <span class="val" id="s3v">Med</span>
+    <input type="range" id="s3" min="1" max="3" value="2">
+  </label>
+
+  <label>Reprocessing Sensitivity <span class="val" id="s4v">Med</span>
+    <input type="range" id="s4" min="1" max="3" value="2">
+  </label>
+
+  <label>Refresh Rate (sec) <span class="val" id="s5v">5</span>
+    <input type="range" id="s5" min="2" max="15" value="5">
+  </label>
+
+  <button class="reset" onclick="location.reload()">Reset to Baseline</button>
+</div>
+
+<div class="main">
+<h1><span class="live-dot"></span>Biopharma Process Yield — Live KPI Dashboard</h1>
+<div class="updated">Last updated: <span id="ts">--</span></div>
+
+<div class="kpis">
+  <div class="kpi" id="k1"><div class="num" id="k1v">78%</div><div class="lbl">Avg. Overall Yield (Live)</div></div>
+  <div class="kpi" id="k2"><div class="num" id="k2v">+9 pts</div><div class="lbl">Yield vs Baseline</div></div>
+  <div class="kpi" id="k3"><div class="num" id="k3v">4.2%</div><div class="lbl">Batch Rejection Rate</div></div>
+  <div class="kpi" id="k4"><div class="num" id="k4v">96.5%</div><div class="lbl">Right-First-Time Rate</div></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>Yield by Production Line (%) — Live</h3>
+    <canvas id="barChart"></canvas>
+  </div>
+  <div class="card">
+    <h3>Yield Loss Contribution by Step — Live</h3>
+    <canvas id="pieChart"></canvas>
+  </div>
+</div>
+</div>
+
+<script>
+const lineLabels = ["Fermentation","Purification","Fill-Finish","Formulation","Line A","Line B"];
+let baseline = [68,72,90,85,74,70];
+let current  = [78,82,95,90,84,79];
+const levelWords = {1:'Low',2:'Med',3:'High'};
+
+const barChart = new Chart(document.getElementById('barChart'), {
+  type: 'bar',
+  data: { labels: lineLabels, datasets: [
+    {label:'Baseline Yield %', data: baseline, backgroundColor:'#f4a261'},
+    {label:'Current Yield %', data: current, backgroundColor:'#2a9d8f'}
+  ]},
+  options: { responsive:true, animation:{duration:400}, scales:{ y:{ beginAtZero:true, max:100 } } }
+});
+
+const pieChart = new Chart(document.getElementById('pieChart'), {
+  type: 'pie',
+  data: {
+    labels: ['Raw material variability','Reprocessing losses','Equipment downtime','In-process rejects'],
+    datasets: [{ data:[35,28,22,15], backgroundColor:['#264653','#2a9d8f','#e9c46a','#e76f51'] }]
+  },
+  options: { responsive:true, animation:{duration:400} }
+});
+
+function flash(id){ const el=document.getElementById(id); el.classList.add('flash'); setTimeout(()=>el.classList.remove('flash'),600); }
+function jitter(v, range, min, max){ let n = v + (Math.random()*2-1)*range; return Math.min(max, Math.max(min, n)); }
+
+let timer;
+function getParams(){
+  return {
+    target: +document.getElementById('s1').value,
+    matVar: +document.getElementById('s2').value,
+    downtime: +document.getElementById('s3').value,
+    reprocess: +document.getElementById('s4').value,
+    refresh: +document.getElementById('s5').value
+  };
+}
+
+// ---- In production, this pulls live tags from MES/historian instead of simulating from sliders ----
+function getLiveData(p){
+  const noise = p.matVar * 0.8;
+  current = current.map(v => {
+    let pull = (p.target - v) * 0.08; // drift toward setpoint
+    return jitter(v + pull, noise, 50, 99);
+  });
+  const overallYield = current.reduce((a,b)=>a+b,0)/current.length;
+  const baseAvg = baseline.reduce((a,b)=>a+b,0)/baseline.length;
+  const vsBaseline = overallYield - baseAvg;
+  const rejectRate = jitter(4.2 * (p.reprocess/2), 0.5, 0.5, 15);
+  const rft = jitter(96.5 - (p.downtime-2)*1.5, 0.7, 80, 99.9);
+
+  const pieRaw = [
+    30 + p.matVar*8,
+    20 + p.reprocess*8,
+    15 + p.downtime*8,
+    15
+  ];
+  const sum = pieRaw.reduce((a,b)=>a+b,0);
+  const pieNorm = pieRaw.map(v => +(v/sum*100).toFixed(1));
+
+  return { current, overallYield, vsBaseline, rejectRate, rft, pieNorm };
+}
+
+function updateDashboard(){
+  const p = getParams();
+  const d = getLiveData(p);
+
+  barChart.data.datasets[1].data = d.current;
+  barChart.update();
+
+  pieChart.data.datasets[0].data = d.pieNorm;
+  pieChart.update();
+
+  document.getElementById('k1v').textContent = d.overallYield.toFixed(1) + '%';
+  document.getElementById('k2v').textContent = (d.vsBaseline>=0?'+':'') + d.vsBaseline.toFixed(1) + ' pts';
+  document.getElementById('k3v').textContent = d.rejectRate.toFixed(1) + '%';
+  document.getElementById('k4v').textContent = d.rft.toFixed(1) + '%';
+  ['k1','k2','k3','k4'].forEach(flash);
+
+  document.getElementById('s1v').textContent = p.target;
+  document.getElementById('s2v').textContent = levelWords[p.matVar];
+  document.getElementById('s3v').textContent = levelWords[p.downtime];
+  document.getElementById('s4v').textContent = levelWords[p.reprocess];
+  document.getElementById('s5v').textContent = p.refresh;
+
+  document.getElementById('ts').textContent = new Date().toLocaleTimeString('en-IN');
+
+  clearTimeout(timer);
+  timer = setTimeout(updateDashboard, p.refresh*1000);
+}
+
+['s1','s2','s3','s4','s5'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', ()=>{ clearTimeout(timer); updateDashboard(); });
+});
+
+updateDashboard();
+</script>
+</body>
+</html>
