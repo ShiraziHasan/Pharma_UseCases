@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Line Clearance Board</title>
+<style>
+  *{box-sizing:border-box;font-family:'Segoe UI',Arial,sans-serif;margin:0;}
+  body{background:#0a0f14;color:#fff;padding:20px;}
+  .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+  .header h1{font-size:26px;}
+  .clock{font-size:18px;color:#8a97a6;}
+  .summary{display:flex;gap:14px;margin-bottom:16px;}
+  .sum-tile{flex:1;background:#151d26;border-radius:14px;padding:16px;text-align:center;}
+  .sum-tile .n{font-size:36px;font-weight:800;}
+  .sum-tile .l{font-size:13px;color:#8a97a6;text-transform:uppercase;}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
+  .card{border-radius:16px;padding:18px;text-align:center;border:4px solid transparent;transition:.3s;position:relative;}
+  .card .area{font-size:18px;color:#c6cfd8;margin-bottom:4px;}
+  .card .product{font-size:14px;color:#8a97a6;margin-bottom:12px;}
+  .card .status{font-size:22px;font-weight:800;padding:10px;border-radius:10px;}
+  .card .timer{font-size:14px;margin-top:8px;color:#c6cfd8;}
+  .card .escbtn{margin-top:10px;font-size:14px;font-weight:700;padding:8px 14px;border-radius:8px;border:none;cursor:pointer;width:100%;}
+  .card.cleared{background:#123a24;border-color:#2fbf71;} .card.cleared .status{color:#2fbf71;}
+  .card.progress{background:#1a2a3a;border-color:#4f8cff;} .card.progress .status{color:#4f8cff;}
+  .card.overdue{background:#3a1418;border-color:#e5484d;animation:pulse 1.4s infinite;} .card.overdue .status{color:#e5484d;}
+  .card.escalated{background:#3a1418;border-color:#fff;} .card.escalated .status{color:#fff;}
+  .escbtn.notify{background:#e5484d;color:#fff;}
+  .escbtn.done{background:#2a3846;color:#8a97a6;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(229,72,77,.5);}70%{box-shadow:0 0 0 16px rgba(229,72,77,0);}100%{box-shadow:0 0 0 0 rgba(229,72,77,0);}}
+  .log-card{background:#151d26;border-radius:14px;padding:18px;}
+  .log-card h3{font-size:15px;color:#8a97a6;margin-bottom:12px;text-transform:uppercase;}
+  .log-row{display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid #223041;font-size:14px;}
+  .log-row .who{color:#f5a623;}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>✅ Line Clearance Status — Live</h1>
+  <div class="clock" id="clock">--:--:--</div>
+</div>
+
+<div class="summary">
+  <div class="sum-tile"><div class="n" id="sCleared" style="color:#2fbf71">--</div><div class="l">Cleared</div></div>
+  <div class="sum-tile"><div class="n" id="sProgress" style="color:#4f8cff">--</div><div class="l">In Progress</div></div>
+  <div class="sum-tile"><div class="n" id="sOverdue" style="color:#e5484d">--</div><div class="l">Overdue</div></div>
+  <div class="sum-tile"><div class="n" id="sEsc" style="color:#fff">--</div><div class="l">Escalated to QA Head</div></div>
+</div>
+
+<div class="grid" id="board"></div>
+
+<div class="log-card">
+  <h3>Escalation Log — audit trail (Schedule M / 21 CFR 211.188)</h3>
+  <div id="escLog"></div>
+</div>
+
+<script>
+const areas = ["Granulation","Compression","Coating","Packaging"];
+const products = ["Metformin 500mg","Amlodipine 5mg","Atorvastatin 20mg","Paracetamol 650mg"];
+let escLog = [];
+let cardState = areas.map(()=>({minsOverdue:0, escalated:false}));
+
+function escalate(i){
+  const now = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+  escLog.unshift({t:now, area:areas[i], msg:`Escalated to QA Head — clearance overdue`});
+  cardState[i].escalated = true;
+  if(escLog.length>8) escLog.pop();
+  render();
+}
+
+function render(){
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleTimeString('en-IN');
+
+  let cleared=0, progress=0, overdue=0, escalatedCount=0;
+  const cards = areas.map((area,i)=>{
+    const roll = Math.random();
+    let status, cls, timer, showBtn=false;
+    if(cardState[i].escalated){
+      status="ESCALATED"; cls="escalated"; escalatedCount++; timer="🔴 QA Head notified — awaiting response";
+    } else if(roll<0.12){
+      status="OVERDUE"; cls="overdue"; overdue++;
+      cardState[i].minsOverdue += 5;
+      timer=`⏱ ${cardState[i].minsOverdue} min past target`;
+      showBtn = cardState[i].minsOverdue >= 15; // auto-eligible after 15 min
+    }
+    else if(roll<0.45){status="IN PROGRESS"; cls="progress"; progress++; timer="⏱ Started recently"; cardState[i].minsOverdue=0;}
+    else {status="CLEARED ✓"; cls="cleared"; cleared++; timer="Verified by QA"; cardState[i].minsOverdue=0;}
+
+    return `<div class="card ${cls}">
+      <div class="area">${area}</div>
+      <div class="product">${products[i]}</div>
+      <div class="status">${status}</div>
+      <div class="timer">${timer}</div>
+      ${showBtn ? `<button class="escbtn notify" onclick="escalate(${i})">🔴 ESCALATE TO QA HEAD</button>` : ''}
+    </div>`;
+  });
+  document.getElementById('board').innerHTML = cards.join('');
+  document.getElementById('sCleared').textContent = cleared;
+  document.getElementById('sProgress').textContent = progress;
+  document.getElementById('sOverdue').textContent = overdue;
+  document.getElementById('sEsc').textContent = escalatedCount;
+  document.getElementById('escLog').innerHTML = escLog.map(e=>
+    `<div class="log-row"><span>${e.t}</span><span class="who">${e.area}</span><span>${e.msg}</span></div>`).join('') || '<div class="log-row"><span style="color:#8a97a6">No escalations logged</span></div>';
+}
+render();
+setInterval(render, 5000);
+</script>
+</body>
+</html>
