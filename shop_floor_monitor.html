@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OEE Shop Floor Monitor</title>
+<style>
+  *{box-sizing:border-box;font-family:'Segoe UI',Arial,sans-serif;margin:0;}
+  body{background:#0a0f14;color:#fff;padding:20px;}
+  .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+  .header h1{font-size:26px;}
+  .clock{font-size:18px;color:#8a97a6;}
+  .status-banner{padding:20px;border-radius:14px;text-align:center;font-size:28px;font-weight:800;margin-bottom:16px;transition:background .4s;}
+  .status-banner .sub{font-size:15px;font-weight:400;margin-top:6px;opacity:.9;}
+  .big-oee{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:14px;margin-bottom:16px;}
+  .tile{background:#151d26;border-radius:14px;padding:20px;text-align:center;border:3px solid transparent;}
+  .tile .label{font-size:14px;color:#8a97a6;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;}
+  .tile .num{font-size:46px;font-weight:800;}
+  .tile.main .num{font-size:68px;}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .card{background:#151d26;border-radius:14px;padding:18px;}
+  .card h3{font-size:15px;color:#8a97a6;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px;}
+  .reason-picker{display:none;}
+  .reason-picker.show{display:block;}
+  .reason-picker p{font-size:18px;margin-bottom:12px;color:#f5a623;}
+  .reason-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .reason-btns button{font-size:16px;font-weight:600;padding:16px;border-radius:10px;border:none;background:#1f2c3a;color:#fff;cursor:pointer;text-align:left;}
+  .reason-btns button:hover{background:#2a3d52;}
+  .impact-log{max-height:280px;overflow-y:auto;}
+  .impact-row{display:flex;justify-content:space-between;padding:10px 4px;border-bottom:1px solid #223041;font-size:14px;}
+  .impact-row .t{color:#8a97a6;width:60px;}
+  .impact-row .r{flex:1;padding:0 8px;}
+  .impact-row .m{font-weight:700;color:#2fbf71;}
+  .savings-total{text-align:center;padding:16px;background:#123a24;border-radius:10px;margin-bottom:12px;}
+  .savings-total .n{font-size:34px;font-weight:800;color:#2fbf71;}
+  .savings-total .l{font-size:13px;color:#8a97a6;text-transform:uppercase;}
+  .dots{display:flex;gap:6px;margin-top:6px;}
+  .dot{width:12px;height:12px;border-radius:50%;background:#2a3846;}
+  .dot.g{background:#2fbf71;} .dot.y{background:#f5a623;} .dot.r{background:#e5484d;}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🏭 Line 3 — Packaging | OEE Live</h1>
+  <div class="clock" id="clock">--:--:--</div>
+</div>
+
+<div class="status-banner" id="banner" style="background:#123a24;color:#2fbf71;">RUNNING WELL<div class="sub" id="bannerSub">All parameters within target</div></div>
+
+<div class="big-oee">
+  <div class="tile main" id="oeeTile"><div class="label">OEE</div><div class="num" id="oeeNum">--%</div></div>
+  <div class="tile"><div class="label">Availability</div><div class="num" id="aNum">--%</div></div>
+  <div class="tile"><div class="label">Performance</div><div class="num" id="pNum">--%</div></div>
+  <div class="tile"><div class="label">Quality</div><div class="num" id="qNum">--%</div></div>
+</div>
+
+<div class="two-col">
+  <div class="card">
+    <h3>Live Status</h3>
+    <div class="dots" id="history"></div>
+    <div class="reason-picker" id="reasonPicker">
+      <p id="reasonPrompt">⚠ Drop detected — tap the reason (this logs it & starts the fix-time clock):</p>
+      <div class="reason-btns">
+        <button onclick="logReason('Changeover overrun')">Changeover overrun</button>
+        <button onclick="logReason('Feeder jam')">Feeder jam</button>
+        <button onclick="logReason('Speed reduced')">Speed reduced</button>
+        <button onclick="logReason('Material wait')">Material wait</button>
+        <button onclick="logReason('Reject spike')">Reject spike</button>
+        <button onclick="logReason('Other / unknown')">Other / unknown</button>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Shift Impact Log</h3>
+    <div class="savings-total"><div class="n" id="totalSaved">0 min</div><div class="l">Downtime resolved this shift (vs. next-day discovery)</div></div>
+    <div class="impact-log" id="impactLog"></div>
+  </div>
+</div>
+
+<script>
+function rand(a,b){return Math.round((Math.random()*(b-a)+a)*10)/10;}
+let dots = [], impactEntries = [], totalMinSaved = 0;
+let pendingIssue = false, issueStartTime = null;
+
+function tick(){
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleTimeString('en-IN');
+
+  const A = rand(65,97), P = rand(70,97), Q = rand(90,99.8);
+  const OEE = (A*P*Q/10000).toFixed(1);
+  document.getElementById('oeeNum').textContent = OEE+"%";
+  document.getElementById('aNum').textContent = A+"%";
+  document.getElementById('pNum').textContent = P+"%";
+  document.getElementById('qNum').textContent = Q+"%";
+
+  const banner = document.getElementById('banner');
+  const bannerSub = document.getElementById('bannerSub');
+  const picker = document.getElementById('reasonPicker');
+  let dotClass = 'g';
+
+  if(OEE < 55){
+    banner.style.background = '#3a1418'; banner.style.color = '#e5484d';
+    banner.innerHTML = 'STOP — LOW OEE'+'<div class="sub">Log the reason below so it can be fixed for the next batch</div>';
+    dotClass='r';
+    if(!pendingIssue){ pendingIssue=true; issueStartTime=now; picker.classList.add('show'); }
+  } else if(OEE < 72){
+    banner.style.background = '#3a2c05'; banner.style.color = '#f5a623';
+    banner.innerHTML = 'WATCH — BELOW TARGET'+'<div class="sub">Monitor next 15 min</div>';
+    dotClass='y';
+  } else {
+    banner.style.background = '#123a24'; banner.style.color = '#2fbf71';
+    banner.innerHTML = 'RUNNING WELL'+'<div class="sub">All parameters within target</div>';
+    dotClass='g';
+    if(pendingIssue){ pendingIssue=false; picker.classList.remove('show'); }
+  }
+  dots.push(dotClass); if(dots.length>20) dots.shift();
+  document.getElementById('history').innerHTML = dots.map(d=>`<div class="dot ${d}"></div>`).join('');
+}
+
+function logReason(reason){
+  const now = new Date();
+  const resolveMin = Math.round((now - issueStartTime)/1000/60) || rand(2,6);
+  const oldWayMin = rand(240,480); // discovered next-day shift review, avg 4-8 hrs later
+  const minSaved = oldWayMin - resolveMin;
+  totalMinSaved += minSaved;
+  impactEntries.unshift({t: now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}), r: reason, m: `+${minSaved}m faster`});
+  if(impactEntries.length>10) impactEntries.pop();
+  document.getElementById('totalSaved').textContent = totalMinSaved+" min";
+  document.getElementById('impactLog').innerHTML = impactEntries.map(e=>
+    `<div class="impact-row"><div class="t">${e.t}</div><div class="r">${e.r}</div><div class="m">${e.m}</div></div>`).join('');
+  document.getElementById('reasonPicker').classList.remove('show');
+  pendingIssue = false;
+}
+
+tick();
+setInterval(tick, 4000);
+</script>
+</body>
+</html>
