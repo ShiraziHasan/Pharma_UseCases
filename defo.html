@@ -60,9 +60,7 @@ select{padding:6px;border-radius:6px;border:1px solid #ccc;margin-left:8px}
   <input type="range" id="horizonSlider" min="1" max="36" value="12" step="1">
   <div class="metricRow">
     <span>Granularity: <b>Monthly</b></span>
-    <span>Estimated accuracy: <b id="futureAcc">-</b></span>
   </div>
-  <div class="note">Future accuracy is estimated from the backtest error above (no ground truth exists yet for future months).</div>
   <canvas id="futureChart"></canvas>
 </div>
 
@@ -165,9 +163,6 @@ function runFuture(){
   const { forecast } = holtWinters(values, 12, 0.3, 0.05, 0.3, horizon);
   const futureLabels = [];
   for(let h=1;h<=horizon;h++) futureLabels.push(addMonths(dates[dates.length-1], h));
-
-  const accText = lastTestMAPE!==null ? Math.max(0,(100-lastTestMAPE)).toFixed(1)+'% (from backtest)' : '-';
-  document.getElementById('futureAcc').innerText = accText;
 
   // show last 24 months of history + future forecast for context
   const tailN = Math.min(24, values.length);
