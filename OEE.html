@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OEE Live Dashboard — Line 1</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #0f1115;
+    color: #e6e6e6;
+    padding: 20px;
+  }
+  h1 { font-weight: 600; font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #888; font-size: 13px; margin-bottom: 20px; }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 12px 16px;
+    background: #1a1d24;
+    border-radius: 8px;
+    border-left: 4px solid #555;
+  }
+  .status-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; }
+  }
+
+  .threshold-config {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 16px;
+  }
+  .threshold-config input {
+    background: #1a1d24;
+    border: 1px solid #333;
+    color: #e6e6e6;
+    padding: 4px 8px;
+    border-radius: 4px;
+    width: 60px;
+    margin-left: 6px;
+  }
+
+  .health-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    border: 2px solid #333;
+    transition: all 0.3s ease;
+  }
+  .health-card.healthy {
+    background: #14261a;
+    border-color: #4caf50;
+  }
+  .health-card.unhealthy {
+    background: #3a1414;
+    border-color: #f44336;
+  }
+  .health-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .health-badge .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+  }
+  .health-badge.healthy-text { color: #4caf50; }
+  .health-badge.unhealthy-text { color: #f44336; }
+  .health-detail {
+    font-size: 12px;
+    color: #999;
+    text-align: right;
+  }
+
+  .alert-banner {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    background: #3a1414;
+    border: 1px solid #f44336;
+    color: #ff8a80;
+    padding: 14px 18px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    animation: alertFlash 1.2s infinite;
+  }
+  @keyframes alertFlash {
+    0% { background: #3a1414; }
+    50% { background: #4d1a1a; }
+    100% { background: #3a1414; }
+  }
+  .alert-banner .icon { font-size: 20px; }
+  .alert-banner .details { font-weight: 400; color: #ffab91; font-size: 12px; margin-top: 2px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .card {
+    background: #1a1d24;
+    border-radius: 10px;
+    padding: 18px;
+    text-align: center;
+    border: 1px solid #262a33;
+  }
+  .card .label { font-size: 12px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card .value { font-size: 32px; font-weight: 700; margin-top: 6px; }
+  .card .sub { font-size: 11px; color: #666; margin-top: 4px; }
+
+  .oee-big { grid-column: span 1; }
+  .oee-big .value { font-size: 40px; }
+
+  .charts-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .panel {
+    background: #1a1d24;
+    border-radius: 10px;
+    padding: 16px;
+    border: 1px solid #262a33;
+  }
+  .panel h3 { margin: 0 0 12px 0; font-size: 14px; color: #aaa; font-weight: 500; }
+
+  .log-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid #262a33;
+    color: #ccc;
+  }
+  .log-item span.reason { color: #e6a04f; }
+
+  .green { color: #4caf50; }
+  .orange { color: #ff9800; }
+  .red { color: #f44336; }
+  .blue { color: #2196f3; }
+  .gray { color: #9e9e9e; }
+  .purple { color: #9c27b0; }
+</style>
+</head>
+<body>
+
+<h1>OEE Live Dashboard — Packaging Line 1</h1>
+<div class="subtitle">Simulated line data · fixed dataset, next reading every 1s · PoC on synthetic data</div>
+
+<div class="status-bar">
+  <div class="status-dot" id="stateDot" style="background:#555;"></div>
+  <div>
+    <strong id="stateLabel">CONNECTING...</strong>
+    <span style="color:#888; margin-left: 12px;" id="stateTime"></span>
+  </div>
+</div>
+
+<div class="threshold-config">
+  Alert threshold: <input type="number" id="thresholdInput" value="60" min="0" max="100"> % OEE
+</div>
+
+<div class="health-card healthy" id="healthCard">
+  <div class="health-badge healthy-text" id="healthBadge">
+    <div class="dot" style="background:#4caf50;"></div>
+    <span id="healthText">EQUIPMENT HEALTHY</span>
+  </div>
+  <div class="health-detail" id="healthDetail">OEE: --% · Threshold: --%</div>
+</div>
+
+<div class="alert-banner" id="alertBanner">
+  <div class="icon">⚠️</div>
+  <div>
+    <div id="alertMainText">OEE BELOW THRESHOLD</div>
+    <div class="details" id="alertDetails"></div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card oee-big">
+    <div class="label">OEE</div>
+    <div class="value" id="oeeVal">--</div>
+    <div class="sub" id="oeeTarget">Target: --%</div>
+  </div>
+  <div class="card">
+    <div class="label">Availability</div>
+    <div class="value" id="availVal">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Performance</div>
+    <div class="value" id="perfVal">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Quality</div>
+    <div class="value" id="qualVal">--</div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="label">Good Units</div>
+    <div class="value" id="goodVal" style="color:#4caf50;">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Rejects</div>
+    <div class="value" id="rejectVal" style="color:#f44336;">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Temperature</div>
+    <div class="value" id="tempVal">--</div>
+    <div class="sub">°C</div>
+  </div>
+  <div class="card">
+    <div class="label">Vibration</div>
+    <div class="value" id="vibVal">--</div>
+    <div class="sub">mm/s</div>
+  </div>
+</div>
+
+<div class="charts-row">
+  <div class="panel">
+    <h3>OEE TREND (LAST 5 MIN)</h3>
+    <canvas id="trendChart" height="90"></canvas>
+  </div>
+  <div class="panel">
+    <h3>RECENT DOWNTIME EVENTS</h3>
+    <div id="downtimeLog"></div>
+  </div>
+</div>
+
+<script>
+/* ==========================================================
+   FIXED SYNTHETIC DATASET — generated once, played back
+   every 1 second. No backend required.
+   ========================================================== */
+
+const TARGET_OEE = 75;
+const TOTAL_POINTS = 300; // 5 minutes of data @ 1s interval
+const TREND_WINDOW = 60;  // show last 60 points (1 min) in trend chart
+
+const stateSequence = [
+  { state: "RUNNING", color: "green", durationRange: [30, 60] },
+  { state: "MINOR_STOP", color: "orange", durationRange: [5, 12] },
+  { state: "RUNNING", color: "green", durationRange: [40, 70] },
+  { state: "DOWNTIME", color: "red", durationRange: [8, 15], reason: "Feed pump jam" },
+  { state: "RUNNING", color: "green", durationRange: [30, 50] },
+  { state: "CHANGEOVER", color: "blue", durationRange: [10, 20] },
+  { state: "RUNNING", color: "green", durationRange: [40, 60] },
+  { state: "MINOR_STOP", color: "orange", durationRange: [5, 10] },
+  { state: "RUNNING", color: "green", durationRange: [30, 50] },
+];
+
+function seededRandom(seed) {
+  let s = seed;
+  return function () {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+}
+const rand = seededRandom(42); // fixed seed so dataset is reproducible
+
+// Build a timeline of states covering TOTAL_POINTS seconds
+function buildStateTimeline() {
+  const timeline = [];
+  let t = 0;
+  let seqIndex = 0;
+  while (t < TOTAL_POINTS) {
+    const seq = stateSequence[seqIndex % stateSequence.length];
+    const dur = Math.floor(seq.durationRange[0] + rand() * (seq.durationRange[1] - seq.durationRange[0]));
+    for (let i = 0; i < dur && t < TOTAL_POINTS; i++, t++) {
+      timeline.push({ state: seq.state, color: seq.color, reason: seq.reason || null, isNewEvent: i === 0 });
+    }
+    seqIndex++;
+  }
+  return timeline;
+}
+
+const stateTimeline = buildStateTimeline();
+
+// Generate full dataset
+const dataset = [];
+let goodCount = 0;
+let rejectCount = 0;
+const downtimeLog = [];
+
+for (let i = 0; i < TOTAL_POINTS; i++) {
+  const s = stateTimeline[i];
+  const isRunning = s.state === "RUNNING";
+
+  // Availability drops during downtime/changeover/minor stop
+  let availability_pct;
+  if (s.state === "RUNNING") availability_pct = 92 + rand() * 6;
+  else if (s.state === "MINOR_STOP") availability_pct = 70 + rand() * 10;
+  else if (s.state === "CHANGEOVER") availability_pct = 50 + rand() * 10;
+  else availability_pct = 30 + rand() * 15; // DOWNTIME
+
+  // Performance varies slightly, dips during minor stop
+  let performance_pct = isRunning ? 85 + rand() * 10 : 60 + rand() * 15;
+
+  // Quality mostly high, occasional dips
+  let quality_pct = 95 + rand() * 4 - (rand() < 0.05 ? 8 : 0);
+
+  const oee_pct = +( (availability_pct/100) * (performance_pct/100) * (quality_pct/100) * 100 ).toFixed(1);
+
+  // Units produced this tick (only if running)
+  if (isRunning) {
+    const producedGood = Math.round(2 + rand() * 3);
+    const producedReject = rand() < 0.08 ? 1 : 0;
+    goodCount += producedGood;
+    rejectCount += producedReject;
+  }
+
+  // Temperature & vibration — correlated with state
+  let temperature_c = 36.5 + rand() * 1.5 + (s.state === "DOWNTIME" ? 1.5 : 0);
+  let vibration_mm_s = 1.2 + rand() * 0.5 + (s.state === "DOWNTIME" ? 0.8 : 0);
+
+  // Log downtime events when a new non-running event starts
+  if (s.isNewEvent && s.state !== "RUNNING") {
+    downtimeLog.unshift({
+      t: i,
+      reason: s.reason || `${s.state.replace('_',' ')} event`
+    });
+  }
+
+  dataset.push({
+    elapsed_s: i,
+    state: s.state,
+    state_color: s.color,
+    oee_pct,
+    target_oee_pct: TARGET_OEE,
+    availability_pct: +availability_pct.toFixed(1),
+    performance_pct: +performance_pct.toFixed(1),
+    quality_pct: +quality_pct.toFixed(1),
+    good_count: goodCount,
+    reject_count: rejectCount,
+    temperature_c: +temperature_c.toFixed(1),
+    vibration_mm_s: +vibration_mm_s.toFixed(2),
+    downtime_log_snapshot: downtimeLog.slice(0, 6) // keep last 6 events up to this point
+  });
+}
+
+/* ==========================================================
+   PLAYBACK ENGINE — steps through dataset every 1 second
+   ========================================================== */
+
+let currentIndex = 0;
+let belowThresholdSince = null;
+let alertAudioCtx = null;
+
+function playAlertBeep() {
+  try {
+    if (!alertAudioCtx) alertAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = alertAudioCtx.createOscillator();
+    const gain = alertAudioCtx.createGain();
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.1, alertAudioCtx.currentTime);
+    osc.connect(gain);
+    gain.connect(alertAudioCtx.destination);
+    osc.start();
+    osc.stop(alertAudioCtx.currentTime + 0.15);
+  } catch (e) { /* audio not available, ignore */ }
+}
+
+const ctx = document.getElementById('trendChart').getContext('2d');
+const trendChart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'OEE %',
+      data: [],
+      borderColor: '#4caf50',
+      backgroundColor: 'rgba(76,175,80,0.08)',
+      borderWidth: 2,
+      pointRadius: 0,
+      fill: true,
+      tension: 0.3
+    }]
+  },
+  options: {
+    responsive: true,
+    animation: false,
+    scales: {
+      x: { display: false },
+      y: { min: 0, max: 100, ticks: { color: '#888' }, grid: { color: '#262a33' } }
+    },
+    plugins: { legend: { display: false } }
+  }
+});
+
+function fmtTime(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  return `${h}h ${m}m ${s}s into shift`;
+}
+
+function refresh() {
+  const d = dataset[currentIndex];
+
+  document.getElementById('stateLabel').textContent = d.state.replace('_', ' ');
+  document.getElementById('stateLabel').className = d.state_color;
+  document.getElementById('stateDot').style.background =
+    { green:'#4caf50', orange:'#ff9800', red:'#f44336', blue:'#2196f3', gray:'#9e9e9e', purple:'#9c27b0' }[d.state_color] || '#555';
+  document.getElementById('stateTime').textContent = fmtTime(d.elapsed_s);
+
+  document.getElementById('oeeVal').textContent = d.oee_pct + '%';
+  document.getElementById('oeeVal').style.color = d.oee_pct >= d.target_oee_pct ? '#4caf50' : '#ff9800';
+  document.getElementById('oeeTarget').textContent = `Target: ${d.target_oee_pct}%`;
+
+  // ---- Threshold alert logic ----
+  const threshold = parseFloat(document.getElementById('thresholdInput').value) || 60;
+  const banner = document.getElementById('alertBanner');
+
+  if (d.oee_pct < threshold) {
+    if (belowThresholdSince === null) {
+      belowThresholdSince = Date.now();
+      playAlertBeep();
+    }
+    const secsBelow = Math.floor((Date.now() - belowThresholdSince) / 1000);
+    banner.style.display = 'flex';
+    document.getElementById('alertMainText').textContent =
+      `⚠ OEE BELOW THRESHOLD — Currently ${d.oee_pct}% (threshold: ${threshold}%)`;
+    document.getElementById('alertDetails').textContent =
+      `Below threshold for ${secsBelow}s · Line state: ${d.state.replace('_',' ')} · Check downtime log →`;
+  } else {
+    belowThresholdSince = null;
+    banner.style.display = 'none';
+  }
+
+  // ---- Persistent health status indicator ----
+  const healthCard = document.getElementById('healthCard');
+  const healthText = document.getElementById('healthText');
+  const healthBadge = document.getElementById('healthBadge');
+  const healthDetail = document.getElementById('healthDetail');
+  const healthDot = healthCard.querySelector('.dot');
+
+  if (d.oee_pct >= threshold) {
+    healthCard.className = 'health-card healthy';
+    healthBadge.className = 'health-badge healthy-text';
+    healthText.textContent = 'EQUIPMENT HEALTHY';
+    healthDot.style.background = '#4caf50';
+  } else {
+    healthCard.className = 'health-card unhealthy';
+    healthBadge.className = 'health-badge unhealthy-text';
+    healthText.textContent = 'NEEDS ATTENTION';
+    healthDot.style.background = '#f44336';
+  }
+  healthDetail.textContent = `OEE: ${d.oee_pct}% · Threshold: ${threshold}%`;
+
+  document.getElementById('availVal').textContent = d.availability_pct + '%';
+  document.getElementById('perfVal').textContent = d.performance_pct + '%';
+  document.getElementById('qualVal').textContent = d.quality_pct + '%';
+
+  document.getElementById('goodVal').textContent = d.good_count;
+  document.getElementById('rejectVal').textContent = d.reject_count;
+  document.getElementById('tempVal').textContent = d.temperature_c;
+  document.getElementById('vibVal').textContent = d.vibration_mm_s;
+
+  // Trend chart: last TREND_WINDOW points up to current index
+  const startIdx = Math.max(0, currentIndex - TREND_WINDOW + 1);
+  const windowSlice = dataset.slice(startIdx, currentIndex + 1);
+  trendChart.data.labels = windowSlice.map(pt => pt.elapsed_s);
+  trendChart.data.datasets[0].data = windowSlice.map(pt => pt.oee_pct);
+  trendChart.update();
+
+  const logDiv = document.getElementById('downtimeLog');
+  logDiv.innerHTML = d.downtime_log_snapshot.map(ev =>
+    `<div class="log-item"><span class="reason">${ev.reason}</span><span>${fmtTime(ev.t)}</span></div>`
+  ).join('') || '<div style="color:#666; font-size:12px;">No events yet</div>';
+
+  // Move to next index, loop back to start when dataset ends
+  currentIndex = (currentIndex + 1) % dataset.length;
+}
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+
+</body>
+</html>
