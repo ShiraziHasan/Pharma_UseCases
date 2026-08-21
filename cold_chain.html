@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PharmaCold AI — Action Center</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171d2e; --panel2:#1d2436; --border:#2a3247;
+    --text:#e7ebf5; --muted:#8b94ac; --accent:#4f9dff; --good:#33c17a;
+    --warn:#f5a524; --bad:#f5576c;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Segoe UI',Roboto,Arial,sans-serif;}
+  header{
+    padding:18px 28px; border-bottom:1px solid var(--border);
+    display:flex; justify-content:space-between; align-items:center;
+    position:sticky; top:0; background:var(--bg); z-index:10;
+  }
+  header h1{margin:0; font-size:19px;}
+  header span{color:var(--muted); font-size:12px;}
+  .live-pill{
+    background:rgba(51,193,122,.15); color:var(--good); font-weight:600;
+    padding:5px 12px; border-radius:20px; font-size:12px; border:1px solid rgba(51,193,122,.3);
+  }
+  .container{padding:22px; max-width:1200px; margin:0 auto;}
+
+  .section-title{
+    font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted);
+    margin:26px 0 12px; display:flex; align-items:center; gap:8px;
+  }
+  .section-title:first-child{margin-top:0;}
+  .count-badge{
+    background:var(--panel2); border:1px solid var(--border); border-radius:20px;
+    padding:1px 9px; font-size:11px; color:var(--text);
+  }
+
+  .action-card{
+    background:var(--panel); border:1px solid var(--border); border-left:4px solid var(--bad);
+    border-radius:10px; padding:16px 18px; margin-bottom:12px;
+    display:grid; grid-template-columns:auto 1fr auto; gap:16px; align-items:center;
+    transition:opacity .3s, transform .3s;
+  }
+  .action-card.warn{ border-left-color:var(--warn); }
+  .action-card.done{ opacity:.4; }
+  .action-card.done .btn-primary{ background:var(--good); }
+
+  .sev-badge{
+    width:46px; height:46px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:15px; flex-shrink:0;
+  }
+  .sev-high{ background:rgba(245,87,108,.15); color:var(--bad); }
+  .sev-med{ background:rgba(245,165,36,.15); color:var(--warn); }
+
+  .action-body .top-row{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .action-body .shipment{ font-weight:700; font-size:15px; }
+  .action-body .eta{ color:var(--muted); font-size:12px; }
+  .action-body .issue{ margin-top:4px; font-size:13px; color:var(--text); }
+  .action-body .why{ margin-top:6px; font-size:12px; color:var(--muted); }
+  .action-body .why b{ color:var(--accent); }
+
+  .action-buttons{ display:flex; flex-direction:column; gap:6px; min-width:150px; }
+  .btn{
+    border:none; border-radius:7px; padding:9px 14px; font-size:12.5px; font-weight:600;
+    cursor:pointer; text-align:center; white-space:nowrap;
+  }
+  .btn-primary{ background:var(--accent); color:#04101f; }
+  .btn-primary:hover{ filter:brightness(1.1); }
+  .btn-secondary{ background:transparent; color:var(--muted); border:1px solid var(--border); }
+  .btn-secondary:hover{ color:var(--text); border-color:var(--muted); }
+  .btn:disabled{ opacity:.5; cursor:default; }
+
+  .healthy-strip{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:12px 18px; display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px;
+  }
+  .healthy-strip .dot{ width:8px; height:8px; border-radius:50%; background:var(--good); }
+
+  .checklist{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:6px;
+  }
+  .check-item{
+    display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:7px;
+    cursor:pointer;
+  }
+  .check-item:hover{ background:var(--panel2); }
+  .check-item input{ width:17px; height:17px; accent-color:var(--good); cursor:pointer; }
+  .check-item .txt{ font-size:13.5px; }
+  .check-item .txt .meta{ display:block; color:var(--muted); font-size:11.5px; margin-top:2px; }
+  .check-item.checked .txt{ text-decoration:line-through; color:var(--muted); }
+
+  .context-grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px 18px; }
+  .panel h4{ margin:0 0 4px; font-size:13px; }
+  .panel .sub{ color:var(--muted); font-size:11.5px; margin-bottom:10px; }
+  canvas{ max-height:180px; }
+
+  .impact-line{
+    display:flex; justify-content:space-between; margin-top:20px; padding:14px 18px;
+    background:rgba(51,193,122,.08); border:1px solid rgba(51,193,122,.25); border-radius:10px;
+    font-size:13px;
+  }
+  .impact-line b{ color:var(--good); font-size:16px; }
+
+  footer{ text-align:center; color:var(--muted); font-size:11px; padding:24px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🧊 PharmaCold AI — Action Center</h1>
+    <span>Sorted by what needs a decision right now</span>
+  </div>
+  <div class="live-pill">● 42 shipments live · updated 2 min ago</div>
+</header>
+
+<div class="container">
+
+  <div class="section-title">Needs action now <span class="count-badge" id="urgentCount">2</span></div>
+
+  <div class="action-card" id="card1">
+    <div class="sev-badge sev-high">83%</div>
+    <div class="action-body">
+      <div class="top-row">
+        <span class="shipment">TR-0954 · Vaccine batch (Pune → Nashik)</span>
+        <span class="eta">ETA 55 min</span>
+      </div>
+      <div class="issue">Refrigeration unit vibration pattern matches early compressor failure signature.</div>
+      <div class="why">Why flagged: <b>vibration + 0.6°C/hr drift</b>, similar to 3 past failures that led to full batch loss.</div>
+    </div>
+    <div class="action-buttons">
+      <button class="btn btn-primary" onclick="resolveCard('card1','urgentCount')">Reroute to Nashik Hub</button>
+      <button class="btn btn-secondary" onclick="resolveCard('card1','urgentCount')">Call driver now</button>
+    </div>
+  </div>
+
+  <div class="action-card warn" id="card2">
+    <div class="sev-badge sev-med">38%</div>
+    <div class="action-body">
+      <div class="top-row">
+        <span class="shipment">TR-1182 · Insulin (Mumbai → Nagpur)</span>
+        <span class="eta">Next stop in 40 min</span>
+      </div>
+      <div class="issue">Temp trending up 1.4°C/hr — will cross 8°C ceiling in ~50 min if unaddressed.</div>
+      <div class="why">Why flagged: <b>sustained upward slope</b> after last door-open event.</div>
+    </div>
+    <div class="action-buttons">
+      <button class="btn btn-primary" onclick="resolveCard('card2','urgentCount')">Add coolant at next stop</button>
+      <button class="btn btn-secondary" onclick="resolveCard('card2','urgentCount')">Notify QA team</button>
+    </div>
+  </div>
+
+  <div class="section-title">Everything else <span class="count-badge">40 shipments</span></div>
+  <div class="healthy-strip">
+    <div class="dot"></div>
+    40 shipments tracking within compliance range — no action needed. AI is watching automatically.
+  </div>
+
+  <div class="section-title">Today's follow-ups <span class="count-badge">3</span></div>
+  <div class="checklist" id="checklist">
+    <label class="check-item">
+      <input type="checkbox" onchange="toggleCheck(this)">
+      <span class="txt">File deviation report for TR-0812 (batch quarantined yesterday)
+        <span class="meta">Required within 24h for GDP compliance</span></span>
+    </label>
+    <label class="check-item">
+      <input type="checkbox" onchange="toggleCheck(this)">
+      <span class="txt">Schedule maintenance check on Truck TR-0954's cooling unit
+        <span class="meta">2nd vibration flag this month — pattern suggests wear, not one-off</span></span>
+    </label>
+    <label class="check-item">
+      <input type="checkbox" onchange="toggleCheck(this)">
+      <span class="txt">Review door-open policy with drivers on the Mumbai–Nagpur route
+        <span class="meta">3 of last 5 excursions on this route started with long door-open events</span></span>
+    </label>
+  </div>
+
+  <div class="impact-line">
+    <span>Batches saved by acting on alerts this month</span>
+    <span><b>6 batches</b></span>
+  </div>
+
+  <div class="section-title" style="margin-top:30px;">Context, if you need it</div>
+  <div class="context-grid">
+    <div class="panel">
+      <h4>Live temp — TR-1182</h4>
+      <div class="sub">2–8°C compliance band</div>
+      <canvas id="tempChart"></canvas>
+    </div>
+    <div class="panel">
+      <h4>Where excursions keep coming from</h4>
+      <div class="sub">This quarter, by root cause</div>
+      <canvas id="causeChart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<footer>Demo dashboard — sample/simulated data for illustration only.</footer>
+
+<script>
+Chart.defaults.color = '#8b94ac';
+Chart.defaults.borderColor = '#2a3247';
+
+function resolveCard(cardId, countId){
+  const card = document.getElementById(cardId);
+  card.classList.add('done');
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+  const counter = document.getElementById(countId);
+  counter.textContent = Math.max(0, parseInt(counter.textContent) - 1);
+}
+
+function toggleCheck(box){
+  box.closest('.check-item').classList.toggle('checked', box.checked);
+}
+
+new Chart(document.getElementById('tempChart'), {
+  type: 'line',
+  data: {
+    labels: ['06:00','06:30','07:00','07:30','08:00','08:14','08:30','09:00'],
+    datasets: [
+      { label:'Actual', data:[4.2,4.5,4.8,5.3,6.1,6.8,null,null],
+        borderColor:'#4f9dff', backgroundColor:'rgba(79,157,255,.15)', tension:.35, fill:true, pointRadius:2 },
+      { label:'Predicted', data:[null,null,null,null,null,6.8,7.6,8.4],
+        borderColor:'#f5a524', borderDash:[6,4], tension:.35, pointRadius:2 },
+      { label:'Limit', data:[8,8,8,8,8,8,8,8], borderColor:'#f5576c', borderWidth:1, pointRadius:0 }
+    ]
+  },
+  options:{
+    plugins:{ legend:{ position:'bottom', labels:{ boxWidth:8, font:{size:10}}}},
+    scales:{ y:{ suggestedMin:0, suggestedMax:10, grid:{color:'#20283b'}}, x:{ grid:{display:false}, ticks:{font:{size:9}} } }
+  }
+});
+
+new Chart(document.getElementById('causeChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Refrigeration wear','Door-open duration','Route/weather delay','Sensor fault'],
+    datasets: [{ data:[34,26,25,15], backgroundColor:['#f5576c','#f5a524','#4f9dff','#8b94ac'], borderColor:'#171d2e', borderWidth:3 }]
+  },
+  options:{ plugins:{ legend:{ position:'bottom', labels:{ boxWidth:8, font:{size:10}}}} }
+});
+</script>
+
+</body>
+</html>
