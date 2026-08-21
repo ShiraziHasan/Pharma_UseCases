@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fermentation Batch Digital Card - POC</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+  body { margin: 0; background: #f4f6f9; color: #1f2937; }
+  header { background: #0f4c81; color: white; padding: 16px 24px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: 0.85; }
+
+  .container { padding: 20px; max-width: 1300px; margin: auto; }
+
+  .kpi-row { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+  .kpi-card { flex: 1; background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); min-width: 180px; }
+  .kpi-card h3 { margin: 0; font-size: 13px; color: #6b7280; font-weight: 500; }
+  .kpi-card .value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+  .kpi-card .value.green { color: #16a34a; }
+  .kpi-card .value.amber { color: #d97706; }
+  .kpi-card .value.red { color: #dc2626; }
+
+  .section { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .section h2 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; }
+  th { background: #f9fafb; color: #6b7280; font-weight: 600; }
+  .status-ok { color: #16a34a; font-weight: 600; }
+  .status-warn { color: #d97706; font-weight: 600; }
+  .status-alert { color: #dc2626; font-weight: 600; }
+
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .chart-box { background: #fafafa; border-radius: 8px; padding: 10px; }
+
+  .deviation-card { border-left: 4px solid #dc2626; background: #fff5f5; padding: 14px; border-radius: 8px; margin-bottom: 14px; }
+  .deviation-card h4 { margin: 0 0 6px; color: #b91c1c; }
+  .deviation-card .ai-box { background: #eef2ff; border-radius: 6px; padding: 10px; margin-top: 8px; font-size: 13px; }
+  .deviation-card .ai-box b { color: #4338ca; }
+  .confidence { display: inline-block; background: #4338ca; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; margin-left: 8px; }
+
+  .btn-row { margin-top: 8px; }
+  .btn { padding: 6px 14px; border-radius: 6px; border: none; font-size: 12px; margin-right: 8px; cursor: pointer; }
+  .btn-accept { background: #16a34a; color: white; }
+  .btn-modify { background: #d97706; color: white; }
+  .btn-reject { background: #dc2626; color: white; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧪 Digital Batch Card — Fermentation Process</h1>
+  <p>Batch ID: FRM-2024-0091 | Product: Microbial Protein API | Start: 2024-06-01 08:00 | Duration: 48h @ 30 min intervals</p>
+</header>
+
+<div class="container">
+
+  <!-- KPI ROW -->
+  <div class="kpi-row">
+    <div class="kpi-card"><h3>Batch Status</h3><div class="value amber">In Progress</div></div>
+    <div class="kpi-card"><h3>Current Phase</h3><div class="value">Log Phase (Hr 32/48)</div></div>
+    <div class="kpi-card"><h3>Deviations Detected</h3><div class="value red" id="devCount">--</div></div>
+    <div class="kpi-card"><h3>Right First Time</h3><div class="value amber">Pending Review</div></div>
+  </div>
+
+  <!-- DIGITAL BATCH CARD -->
+  <div class="section">
+    <h2>📋 Feed Schedule — Planned vs Actual</h2>
+    <table id="feedTable">
+      <thead>
+        <tr><th>Step</th><th>Time (Hr)</th><th>Nutrient</th><th>Planned (L)</th><th>Actual (L)</th><th>Variance</th><th>Status</th><th>Signed Off</th></tr>
+      </thead>
+      <tbody id="feedTableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- TREND CHARTS -->
+  <div class="section">
+    <h2>📈 Process Parameter Trends</h2>
+    <div class="chart-grid">
+      <div class="chart-box"><canvas id="tempChart" height="200"></canvas></div>
+      <div class="chart-box"><canvas id="phChart" height="200"></canvas></div>
+      <div class="chart-box"><canvas id="pressureChart" height="200"></canvas></div>
+      <div class="chart-box"><canvas id="feedCumChart" height="200"></canvas></div>
+    </div>
+  </div>
+
+  <!-- DEVIATION & AI PANEL -->
+  <div class="section">
+    <h2>⚠️ Deviations & AI-Suggested Corrective Actions</h2>
+    <div id="deviationPanel"></div>
+  </div>
+
+</div>
+
+<script>
+/* ============================
+   1. SYNTHETIC DATA GENERATION
+   ============================ */
+const intervalHrs = 0.5;
+const totalHrs = 48;
+const nPoints = totalHrs / intervalHrs + 1;
+
+const timeLabels = [];
+const tempData = [], phData = [], pressureData = [];
+
+// deviation windows (hour ranges)
+const tempDevStart = 20, tempDevEnd = 23;   // temp spike
+const phDevStart = 30, phDevEnd = 32;       // pH drop
+
+for (let i = 0; i < nPoints; i++) {
+  const hr = i * intervalHrs;
+  timeLabels.push(hr.toFixed(1));
+
+  // Temperature: setpoint 37 ± 0.3 normally, spike during deviation window
+  let temp = 37 + (Math.random() - 0.5) * 0.4;
+  if (hr >= tempDevStart && hr <= tempDevEnd) {
+    temp += 1.8 + Math.random() * 0.5; // spike to ~39
+  }
+  tempData.push(+temp.toFixed(2));
+
+  // pH: setpoint 6.8-7.2 normally, drop during deviation window
+  let ph = 7.0 + (Math.random() - 0.5) * 0.3;
+  if (hr >= phDevStart && hr <= phDevEnd) {
+    ph -= 0.6 + Math.random() * 0.2; // drop to ~6.3
+  }
+  phData.push(+ph.toFixed(2));
+
+  // Pressure: stable, minor noise
+  let pressure = 1.1 + (Math.random() - 0.5) * 0.08;
+  pressureData.push(+pressure.toFixed(2));
+}
+
+// Feed schedule (discrete events every 6 hrs)
+const feedSteps = [
+  { step: 1, time: 0,  nutrient: "Glucose",          planned: 5.0 },
+  { step: 2, time: 6,  nutrient: "Nitrogen Source",  planned: 2.5 },
+  { step: 3, time: 12, nutrient: "Glucose",          planned: 5.0 },
+  { step: 4, time: 18, nutrient: "Trace Minerals",   planned: 1.0 },
+  { step: 5, time: 24, nutrient: "Glucose",          planned: 6.0 },
+  { step: 6, time: 30, nutrient: "Nitrogen Source",  planned: 3.0 },
+  { step: 7, time: 36, nutrient: "Glucose",          planned: 6.0 },
+  { step: 8, time: 42, nutrient: "Trace Minerals",   planned: 1.2 },
+];
+
+feedSteps.forEach(f => {
+  let variancePct = (Math.random() - 0.5) * 0.06; // ±3% normal noise
+  // force a deliberate deviation on step 6 (coincides with pH drop event)
+  if (f.step === 6) variancePct = 0.15; // +15% overfeed
+  f.actual = +(f.planned * (1 + variancePct)).toFixed(2);
+  f.variancePct = (variancePct * 100).toFixed(1);
+  f.status = Math.abs(variancePct) > 0.10 ? "alert" : (Math.abs(variancePct) > 0.05 ? "warn" : "ok");
+});
+
+/* ============================
+   2. RENDER BATCH CARD TABLE
+   ============================ */
+const tbody = document.getElementById('feedTableBody');
+feedSteps.forEach(f => {
+  const statusLabel = f.status === "alert" ? '<span class="status-alert">🔴 Deviation</span>'
+                     : f.status === "warn" ? '<span class="status-warn">⚠️ Minor Variance</span>'
+                     : '<span class="status-ok">✅ OK</span>';
+  const signOff = f.status === "alert" ? "AI Flagged / Pending QA" : "Operator A";
+  tbody.innerHTML += `
+    <tr>
+      <td>${f.step}</td>
+      <td>${f.time}</td>
+      <td>${f.nutrient}</td>
+      <td>${f.planned.toFixed(2)}</td>
+      <td>${f.actual.toFixed(2)}</td>
+      <td>${f.variancePct}%</td>
+      <td>${statusLabel}</td>
+      <td>${signOff}</td>
+    </tr>`;
+});
+
+const deviationCountInFeed = feedSteps.filter(f => f.status === "alert").length;
+
+/* ============================
+   3. TREND CHARTS
+   ============================ */
+function makeLineChart(ctx, label, data, color, lowerLimit, upperLimit) {
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: timeLabels,
+      datasets: [
+        {
+          label: label,
+          data: data,
+          borderColor: color,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.2
+        },
+        {
+          label: 'Upper Limit',
+          data: timeLabels.map(() => upperLimit),
+          borderColor: '#dc2626',
+          borderDash: [5,5],
+          borderWidth: 1,
+          pointRadius: 0
+        },
+        {
+          label: 'Lower Limit',
+          data: timeLabels.map(() => lowerLimit),
+          borderColor: '#dc2626',
+          borderDash: [5,5],
+          borderWidth: 1,
+          pointRadius: 0
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { boxWidth: 12, font: { size: 10 } } } },
+      scales: {
+        x: { title: { display: true, text: 'Time (Hr)' }, ticks: { maxTicksLimit: 10 } },
+        y: { title: { display: true, text: label } }
+      }
+    }
+  });
+}
+
+makeLineChart(document.getElementById('tempChart'), 'Temperature (°C)', tempData, '#0f4c81', 36.5, 37.5);
+makeLineChart(document.getElementById('phChart'), 'pH', phData, '#7c3aed', 6.8, 7.2);
+makeLineChart(document.getElementById('pressureChart'), 'Pressure (bar)', pressureData, '#059669', 1.0, 1.2);
+
+// Cumulative feed chart
+const cumLabels = feedSteps.map(f => `Hr ${f.time}`);
+const cumPlanned = [], cumActual = [];
+let runPlanned = 0, runActual = 0;
+feedSteps.forEach(f => {
+  runPlanned += f.planned; runActual += f.actual;
+  cumPlanned.push(+runPlanned.toFixed(2));
+  cumActual.push(+runActual.toFixed(2));
+});
+new Chart(document.getElementById('feedCumChart'), {
+  type: 'line',
+  data: {
+    labels: cumLabels,
+    datasets: [
+      { label: 'Cumulative Planned Feed (L)', data: cumPlanned, borderColor: '#0f4c81', borderDash: [4,4], pointRadius: 3 },
+      { label: 'Cumulative Actual Feed (L)', data: cumActual, borderColor: '#dc2626', pointRadius: 3 }
+    ]
+  },
+  options: { plugins: { legend: { labels: { font: { size: 10 } } } } }
+});
+
+/* ============================
+   4. DEVIATION + AI SUGGESTION PANEL
+   ============================ */
+const deviations = [
+  {
+    title: "Temperature Excursion",
+    detail: `Temperature rose to ~${Math.max(...tempData).toFixed(1)}°C between Hr ${tempDevStart}–${tempDevEnd} (Setpoint: 36.5–37.5°C)`,
+    aiSuggestion: "Reduce jacket cooling water setpoint by 2°C and increase agitation by 5% to enhance heat dissipation. Similar pattern observed in 4 historical batches — corrective action resolved excursion within 45 min in 3/4 cases.",
+    confidence: "84%"
+  },
+  {
+    title: "pH Drop",
+    detail: `pH dropped to ~${Math.min(...phData).toFixed(2)} between Hr ${phDevStart}–${phDevEnd} (Setpoint: 6.8–7.2)`,
+    aiSuggestion: "Dose 1N NaOH at 0.4 mL/min for 6 minutes to bring pH back within range. Coincides with overfeed at Step 6 (Nitrogen Source, +15% vs plan) — recommend verifying feed pump calibration.",
+    confidence: "78%"
+  }
+];
+
+const panel = document.getElementById('deviationPanel');
+deviations.forEach(d => {
+  panel.innerHTML += `
+    <div class="deviation-card">
+      <h4>🔴 ${d.title}</h4>
+      <p>${d.detail}</p>
+      <div class="ai-box">
+        <b>🤖 AI Suggested Action:</b> ${d.aiSuggestion}
+        <span class="confidence">Confidence: ${d.confidence}</span>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-accept">Accept</button>
+        <button class="btn btn-modify">Modify</button>
+        <button class="btn btn-reject">Reject</button>
+      </div>
+    </div>`;
+});
+
+document.getElementById('devCount').innerText = deviations.length + deviationCountInFeed;
+</script>
+
+</body>
+</html>
