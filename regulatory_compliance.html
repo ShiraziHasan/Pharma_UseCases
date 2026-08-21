@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Regulatory Compliance KPI Dashboard (Live)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;margin:0;color:#222;display:flex}
+  .sidebar{width:270px;min-height:100vh;background:#6a1b9a;color:#fff;padding:20px;box-sizing:border-box}
+  .sidebar h2{font-size:16px;margin-top:0}
+  .sidebar label{display:block;margin-top:18px;font-size:13px}
+  .sidebar input[type=range]{width:100%;margin-top:6px}
+  .sidebar .val{float:right;font-weight:bold;color:#e6c9ff}
+  .main{flex:1;padding:20px}
+  h1{color:#6a1b9a;font-size:22px;display:flex;align-items:center;gap:10px;margin-top:0}
+  .live-dot{width:10px;height:10px;border-radius:50%;background:#2ecc71;display:inline-block;animation:pulse 1.5s infinite}
+  @keyframes pulse{0%{opacity:1}50%{opacity:.3}100%{opacity:1}}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px}
+  .card{background:#fff;border-radius:10px;padding:18px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:900px;margin-bottom:20px}
+  .kpi{background:#fff;border-radius:10px;padding:16px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.08);transition:background .3s}
+  .kpi .num{font-size:26px;font-weight:bold;color:#6a1b9a}
+  .kpi .lbl{font-size:12px;color:#555;margin-top:4px}
+  .flash{background:#f3eaf9!important}
+  .updated{font-size:12px;color:#888;text-align:right;max-width:900px;margin-bottom:6px}
+  .feed{max-width:900px;background:#fff;border-radius:10px;padding:14px 18px;box-shadow:0 2px 6px rgba(0,0,0,.08);margin-top:20px}
+  .feed ul{list-style:none;padding:0;margin:8px 0 0;max-height:150px;overflow-y:auto;font-size:13px}
+  .feed li{padding:5px 0;border-bottom:1px solid #f0f0f0}
+  .tag{font-size:10px;padding:2px 6px;border-radius:4px;color:#fff;margin-right:6px}
+  .tag.open{background:#e76f51}
+  .tag.closed{background:#2a9d8f}
+  .reset{margin-top:24px;width:100%;padding:8px;background:#fff;color:#6a1b9a;border:none;border-radius:6px;font-weight:bold;cursor:pointer}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>Compliance Controls</h2>
+
+  <label>Automation + Oversight Maturity <span class="val" id="s1v">Med</span>
+    <input type="range" id="s1" min="1" max="3" value="2">
+  </label>
+
+  <label>Deviation Volume (relative) <span class="val" id="s2v">Med</span>
+    <input type="range" id="s2" min="1" max="3" value="2">
+  </label>
+
+  <label>QA Review Staffing Level <span class="val" id="s3v">Med</span>
+    <input type="range" id="s3" min="1" max="3" value="2">
+  </label>
+
+  <label>Documentation Digitization <span class="val" id="s4v">Med</span>
+    <input type="range" id="s4" min="1" max="3" value="2">
+  </label>
+
+  <label>Refresh Rate (sec) <span class="val" id="s5v">6</span>
+    <input type="range" id="s5" min="2" max="15" value="6">
+  </label>
+
+  <button class="reset" onclick="location.reload()">Reset to Baseline</button>
+</div>
+
+<div class="main">
+<h1><span class="live-dot"></span>Regulatory Compliance — Live "Human-in-the-Loop" Dashboard</h1>
+<div class="updated">Last updated: <span id="ts">--</span></div>
+
+<div class="kpis">
+  <div class="kpi" id="k1"><div class="num" id="k1v">62%</div><div class="lbl">Deviation Reduction YoY</div></div>
+  <div class="kpi" id="k2"><div class="num" id="k2v">100%</div><div class="lbl">Batches with Human Sign-off</div></div>
+  <div class="kpi" id="k3"><div class="num" id="k3v">2.1 hrs</div><div class="lbl">Avg. Deviation Closure Time</div></div>
+  <div class="kpi" id="k4"><div class="num" id="k4v">0</div><div class="lbl">Open Critical Findings</div></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>Audit Findings: Before vs. After — Live</h3>
+    <canvas id="barChart"></canvas>
+  </div>
+  <div class="card">
+    <h3>Deviation Root-Cause Breakdown — Live</h3>
+    <canvas id="pieChart"></canvas>
+  </div>
+</div>
+
+<div class="feed">
+  <h3>Live Deviation / CAPA Event Feed</h3>
+  <ul id="eventFeed"></ul>
+</div>
+</div>
+
+<script>
+const categories = ['Data integrity gaps','Manual transcription errors','Missed trend alerts','Late deviation reporting','Documentation gaps'];
+let before = [42,38,30,25,20];
+let after  = [10,8,7,6,5];
+const levelWords = {1:'Low',2:'Med',3:'High'};
+
+const barChart = new Chart(document.getElementById('barChart'), {
+  type: 'bar',
+  data: { labels: categories, datasets: [
+    {label:'Before', data: before, backgroundColor:'#e76f51'},
+    {label:'After (automation + human review)', data: after, backgroundColor:'#2a9d8f'}
+  ]},
+  options: { responsive:true, animation:{duration:400}, scales:{ y:{ beginAtZero:true } } }
+});
+
+const pieChart = new Chart(document.getElementById('pieChart'), {
+  type: 'pie',
+  data: {
+    labels: ['Manual data entry errors','Undetected process drift','Procedural non-compliance','Missing traceability records'],
+    datasets: [{ data:[35,30,20,15], backgroundColor:['#6a1b9a','#8e44ad','#c39bd3','#d7bde2'] }]
+  },
+  options: { responsive:true, animation:{duration:400} }
+});
+
+function flash(id){ const el=document.getElementById(id); el.classList.add('flash'); setTimeout(()=>el.classList.remove('flash'),600); }
+function jitter(v, range, min, max){ let n = v + (Math.random()*2-1)*range; return Math.min(max, Math.max(min, n)); }
+
+const eventPool = [
+  {text:'Deviation DEV-2291 raised — pH excursion, Line B', tag:'open'},
+  {text:'CAPA-118 closed — root cause: calibration drift', tag:'closed'},
+  {text:'Operator override logged — batch 4471, reviewed by QA', tag:'closed'},
+  {text:'Deviation DEV-2292 raised — temperature alarm, Fermenter 2', tag:'open'},
+  {text:'Audit trail review completed — no anomalies found', tag:'closed'},
+  {text:'Deviation DEV-2290 escalated to QA head', tag:'open'}
+];
+
+let timer;
+function getParams(){
+  return {
+    maturity: +document.getElementById('s1').value,
+    volume: +document.getElementById('s2').value,
+    staffing: +document.getElementById('s3').value,
+    digitization: +document.getElementById('s4').value,
+    refresh: +document.getElementById('s5').value
+  };
+}
+
+// ---- In production, replace with live pull from QMS/eDMS/LIMS event stream ----
+function getLiveData(p){
+  const maturityFactor = (4 - p.maturity); // higher maturity => lower "after" numbers
+  after = after.map(v => jitter(v * (maturityFactor/2), 0.8, 1, 20));
+  const devReduction = jitter(40 + p.maturity*12, 3, 20, 90);
+  const closureTime = jitter(3.5 - p.staffing*0.6, 0.3, 0.5, 6);
+  const openCritical = (p.maturity===3 && Math.random()<0.95) ? 0 : (Math.random()<0.7?0:1);
+  const pieRaw = [
+    30 + (4-p.digitization)*8,
+    25 + p.volume*6,
+    20,
+    15 + (4-p.digitization)*5
+  ];
+  const sum = pieRaw.reduce((a,b)=>a+b,0);
+  const pieNorm = pieRaw.map(v => +(v/sum*100).toFixed(1));
+  const newEvent = eventPool[Math.floor(Math.random()*eventPool.length)];
+
+  return { after, devReduction, closureTime, openCritical, pieNorm, newEvent };
+}
+
+function updateDashboard(){
+  const p = getParams();
+  const d = getLiveData(p);
+
+  barChart.data.datasets[1].data = d.after;
+  barChart.update();
+
+  pieChart.data.datasets[0].data = d.pieNorm;
+  pieChart.update();
+
+  document.getElementById('k1v').textContent = d.devReduction.toFixed(0) + '%';
+  document.getElementById('k3v').textContent = d.closureTime.toFixed(1) + ' hrs';
+  document.getElementById('k4v').textContent = d.openCritical;
+  ['k1','k3','k4'].forEach(flash);
+
+  const feed = document.getElementById('eventFeed');
+  const li = document.createElement('li');
+  li.innerHTML = `<span class="tag ${d.newEvent.tag}">${d.newEvent.tag.toUpperCase()}</span>${d.newEvent.text} <span style="color:#aaa">— ${new Date().toLocaleTimeString('en-IN')}</span>`;
+  feed.prepend(li);
+  while(feed.children.length > 8) feed.removeChild(feed.lastChild);
+
+  document.getElementById('s1v').textContent = levelWords[p.maturity];
+  document.getElementById('s2v').textContent = levelWords[p.volume];
+  document.getElementById('s3v').textContent = levelWords[p.staffing];
+  document.getElementById('s4v').textContent = levelWords[p.digitization];
+  document.getElementById('s5v').textContent = p.refresh;
+
+  document.getElementById('ts').textContent = new Date().toLocaleTimeString('en-IN');
+
+  clearTimeout(timer);
+  timer = setTimeout(updateDashboard, p.refresh*1000);
+}
+
+['s1','s2','s3','s4','s5'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', ()=>{ clearTimeout(timer); updateDashboard(); });
+});
+
+updateDashboard();
+</script>
+</body>
+</html>
