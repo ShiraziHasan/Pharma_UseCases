@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Column C-204 — Solvent Recovery AI Advisor (Rigorous Shortcut Model)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg: #0c0f0d;
+    --panel: #121613;
+    --panel-raised: #171c18;
+    --line: #2a332c;
+    --amber: #f5b563;
+    --cyan: #5fe0d9;
+    --green: #7ad19a;
+    --red: #ea7477;
+    --text-hi: #f7faf7;
+    --text-mid: #b9c6bd;
+    --text-lo: #8a978e;
+    --mono: 'IBM Plex Mono', 'Courier New', monospace;
+    --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+  }
+  @font-face { font-family:'IBM Plex Sans'; src: local('Helvetica Neue'), local('Arial'); }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body{ background:var(--bg); color:var(--text-hi); font-family:var(--sans); }
+  body{ padding:20px 24px 60px; min-height:100vh; font-size:15px; line-height:1.5; }
+
+  .topbar{
+    display:flex; justify-content:space-between; align-items:flex-end;
+    border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:18px;
+  }
+  .plant-id{ font-family:var(--mono); font-size:12px; letter-spacing:.08em; color:var(--text-mid); text-transform:uppercase; }
+  .title{ font-size:26px; font-weight:600; letter-spacing:-0.01em; margin-top:4px; }
+  .title span{ color:var(--cyan); }
+  .status-cluster{ display:flex; gap:22px; align-items:center; }
+  .status-item{ text-align:right; }
+  .status-label{ font-family:var(--mono); font-size:11px; color:var(--text-mid); letter-spacing:.05em; text-transform:uppercase; }
+  .status-value{ font-family:var(--mono); font-size:17px; font-weight:600; margin-top:2px; }
+  .pulse-dot{ width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; margin-right:6px; animation:pulse 1.6s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+  /* ===== TABS ===== */
+  .tabbar{ display:flex; gap:4px; margin-bottom:18px; border-bottom:1px solid var(--line); }
+  .tab-btn{
+    background:transparent; border:none; color:var(--text-mid); font-family:var(--mono);
+    font-size:12.5px; letter-spacing:.06em; text-transform:uppercase; padding:11px 20px;
+    cursor:pointer; border-bottom:2px solid transparent; transition:color .15s, border-color .15s;
+  }
+  .tab-btn:hover{ color:var(--text-hi); }
+  .tab-btn.active{ color:var(--text-hi); border-bottom:2px solid var(--cyan); }
+  .tab-panel{ display:none; }
+  .tab-panel.active{ display:block; }
+
+  .grid{
+    display:grid;
+    grid-template-columns: 300px 1fr 340px;
+    gap:16px;
+    align-items:start;
+  }
+  @media (max-width: 1100px){ .grid{ grid-template-columns: 1fr; } }
+
+  .grid-2col{
+    display:grid;
+    grid-template-columns: 380px 1fr;
+    gap:16px;
+    align-items:start;
+  }
+  @media (max-width: 900px){ .grid-2col{ grid-template-columns: 1fr; } }
+
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    padding:16px;
+  }
+  .panel-title{
+    font-family:var(--mono); font-size:12px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--text-mid); margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;
+  }
+
+  .schematic-wrap{ display:flex; justify-content:center; padding:6px 0 4px; }
+  #flowline{ stroke-dasharray: 6 5; animation: flow 1s linear infinite; }
+  @keyframes flow{ to{ stroke-dashoffset:-11; } }
+  .tag{ font-family:var(--mono); font-size:12px; fill:var(--text-mid); }
+  .tagval{ font-family:var(--mono); font-size:13px; font-weight:700; fill:var(--text-hi); }
+
+  .kpi-row{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+  .kpi-row.cols-2{ grid-template-columns:repeat(2,1fr); }
+  .kpi{
+    background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px 16px;
+    position:relative; overflow:hidden;
+  }
+  .kpi-label{ font-family:var(--mono); font-size:11px; color:var(--text-mid); letter-spacing:.05em; text-transform:uppercase; }
+  .kpi-value{ font-family:var(--mono); font-size:26px; font-weight:600; margin-top:6px; }
+  .kpi-value small{ font-size:13px; color:var(--text-mid); font-weight:400; }
+  .kpi-delta{ font-family:var(--mono); font-size:12px; margin-top:5px; }
+  .kpi-delta.pos{ color:var(--green); }
+  .kpi-delta.neg{ color:var(--red); }
+  .kpi-delta.warn{ color:var(--amber); }
+
+  .chart-box{ height:200px; margin-bottom:14px; }
+  .chart-box:last-child{ margin-bottom:0; }
+
+  .rec-card{
+    border:1px solid #4a3a1e; background:linear-gradient(180deg, rgba(245,181,99,0.10), transparent);
+    border-radius:6px; padding:14px; margin-bottom:14px;
+  }
+  .rec-card.risk{ border:1px solid #5a2a2a; background:linear-gradient(180deg, rgba(234,116,119,0.10), transparent); }
+  .rec-head{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .rec-badge{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase;
+    background:var(--amber); color:#1a1200; padding:3px 8px; border-radius:3px; font-weight:700;
+  }
+  .rec-badge.risk{ background:var(--red); color:#1a0000; }
+  .rec-text{ font-size:14.5px; color:var(--text-hi); line-height:1.6; }
+  .rec-action{
+    margin-top:10px; display:flex; justify-content:space-between; align-items:center;
+    font-family:var(--mono); font-size:13px;
+  }
+  .apply-btn{
+    background:var(--amber); color:#1a1200; border:none; padding:7px 15px; border-radius:4px;
+    font-family:var(--mono); font-size:12px; font-weight:700; letter-spacing:.03em; cursor:pointer;
+    text-transform:uppercase;
+  }
+  .apply-btn:hover{ filter:brightness(1.1); }
+  .apply-btn:disabled{ opacity:.5; cursor:default; }
+  .apply-btn.ghost{ background:transparent; border:1px solid var(--cyan); color:var(--cyan); }
+  .apply-btn.small{ padding:5px 12px; font-size:11px; }
+
+  .cause-item{
+    display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); font-size:13.5px;
+  }
+  .cause-item:last-child{ border-bottom:none; }
+  .cause-bar{ width:4px; border-radius:2px; flex-shrink:0; }
+  .cause-bar.hi{ background:var(--red); }
+  .cause-bar.mid{ background:var(--amber); }
+  .cause-bar.lo{ background:var(--text-lo); }
+  .cause-txt{ color:var(--text-mid); line-height:1.5; }
+  .cause-txt b{ color:var(--text-hi); font-weight:600; }
+
+  .log{ max-height:220px; overflow-y:auto; }
+  .log-item{
+    font-family:var(--mono); font-size:12.5px; padding:7px 0; border-bottom:1px solid var(--line);
+    display:flex; gap:8px; color:var(--text-mid); line-height:1.5;
+  }
+  .log-item:first-child{ color:var(--text-hi); }
+  .log-time{ color:var(--text-lo); flex-shrink:0; }
+  .log-tag{ flex-shrink:0; font-weight:700; }
+  .log-tag.info{ color:var(--cyan); }
+  .log-tag.warn{ color:var(--amber); }
+  .log-tag.good{ color:var(--green); }
+  .log-tag.risk{ color:var(--red); }
+
+  .disclosure{
+    margin-top:18px; padding:12px 14px; border:1px solid var(--line); border-radius:6px;
+    font-family:var(--mono); font-size:11.5px; color:var(--text-lo); line-height:1.6;
+  }
+
+  /* ===== Tab 1 — input form ===== */
+  .input-field{ margin-bottom:13px; }
+  .input-field label{
+    display:block; font-family:var(--mono); font-size:11px; color:var(--text-mid);
+    text-transform:uppercase; letter-spacing:.05em; margin-bottom:5px;
+  }
+  .input-field input{
+    width:100%; background:var(--panel-raised); border:1px solid var(--line); border-radius:4px;
+    padding:9px 10px; color:var(--text-hi); font-family:var(--mono); font-size:13.5px;
+  }
+  .input-field input:focus{ outline:none; border-color:var(--cyan); }
+  .input-field input:disabled{ color:var(--text-lo); }
+  .input-hint{ font-family:var(--mono); font-size:10.5px; color:var(--text-lo); margin-top:4px; }
+  .field-row{ display:flex; gap:10px; }
+  .field-row .input-field{ flex:1; }
+
+  /* ===== Tab 3 — log table ===== */
+  .log-table-wrap{ overflow-x:auto; max-height:560px; overflow-y:auto; }
+  #logTable{ width:100%; border-collapse:collapse; font-family:var(--mono); font-size:11.8px; }
+  #logTable th{
+    text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); color:var(--text-mid);
+    font-size:10px; text-transform:uppercase; letter-spacing:.04em; position:sticky; top:0;
+    background:var(--panel); white-space:nowrap;
+  }
+  #logTable td{ padding:6px 10px; border-bottom:1px solid var(--line); color:var(--text-hi); white-space:nowrap; }
+  #logTable tr:hover td{ background:var(--panel-raised); }
+  .log-meta{ font-family:var(--mono); font-size:11.5px; color:var(--text-lo); margin-top:10px; }
+
+  ::-webkit-scrollbar{ width:6px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <div class="plant-id">SOLVENT RECOVERY / DISTILLATION / UNIT C-204</div>
+    <div class="title">Reflux <span>AI</span> Advisor — Rigorous Shortcut Model</div>
+  </div>
+  <div class="status-cluster">
+    <div class="status-item">
+      <div class="status-label">Feed</div>
+      <div class="status-value" id="feedRateDisp">— LPH</div>
+    </div>
+    <div class="status-item">
+      <div class="status-label">Purity Target (CH₃OH, wt%)</div>
+      <div class="status-value">95.0%</div>
+    </div>
+    <div class="status-item">
+      <div class="status-label"><span class="pulse-dot"></span>Model Status</div>
+      <div class="status-value" style="color:var(--green)">LIVE</div>
+    </div>
+  </div>
+</div>
+
+<div class="tabbar">
+  <button class="tab-btn" data-tab="tab1">1. Setpoint Input</button>
+  <button class="tab-btn active" data-tab="tab2">2. Live Dashboard</button>
+  <button class="tab-btn" data-tab="tab3">3. Data Log</button>
+</div>
+
+<!-- ======================= TAB 1 — MANUAL INPUT / CALCULATOR ======================= -->
+<div class="tab-panel" id="tab1">
+  <div class="grid-2col">
+    <div class="panel">
+      <div class="panel-title">Manual Setpoint Calculator — Inputs</div>
+
+      <div class="input-field">
+        <label>Feed Rate (LPH)</label>
+        <input type="number" id="inFeedRate" value="2000" step="10">
+      </div>
+
+      <div class="field-row">
+        <div class="input-field">
+          <label>CH₃OH in feed (mol%)</label>
+          <input type="number" id="inCh3oh" value="17.00" step="0.01">
+        </div>
+        <div class="input-field">
+          <label>CHCl₃ in feed (mol%)</label>
+          <input type="number" id="inChcl3" value="0.87" step="0.01">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="input-field">
+          <label>IPA in feed (mol%)</label>
+          <input type="number" id="inIpa" value="0.90" step="0.01">
+        </div>
+        <div class="input-field">
+          <label>H₂O in feed (mol%, balance)</label>
+          <input type="text" id="inH2o" value="—" disabled>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="input-field">
+          <label>Feed thermal quality, q</label>
+          <input type="number" id="inQ" value="1.0" step="0.05">
+        </div>
+        <div class="input-field">
+          <label>R above Rmin (factor)</label>
+          <input type="number" id="inRFactor" value="1.30" step="0.05">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="input-field">
+          <label>CH₃OH recovery to distillate</label>
+          <input type="number" id="inRecLK" value="0.97" step="0.01" min="0" max="1">
+        </div>
+        <div class="input-field">
+          <label>H₂O recovery to bottoms</label>
+          <input type="number" id="inRecHK" value="0.98" step="0.01" min="0" max="1">
+        </div>
+      </div>
+
+      <div class="input-hint" id="inputWarn" style="color:var(--red); display:none;">
+        Feed component mol% exceeds 100% — reduce CH₃OH/CHCl₃/IPA inputs.
+      </div>
+
+      <button class="apply-btn" id="calcBtn" style="width:100%; margin-top:8px;">Calculate Optimum Reflux</button>
+    </div>
+
+    <div>
+      <div class="rec-card" id="tab1RecCard">
+        <div class="rec-head"><span class="rec-badge" id="tab1RecBadge">Awaiting Input</span></div>
+        <div class="rec-text" id="tab1RecText">
+          Enter feed conditions and recoveries, then run the shortcut model to get the recommended
+          reflux ratio, theoretical stage count, and expected steam duty before pushing it to the live dashboard.
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Shortcut Model Results (Fenske / Underwood / Gilliland)</div>
+        <div class="kpi-row cols-2">
+          <div class="kpi">
+            <div class="kpi-label">Minimum Reflux (Rmin)</div>
+            <div class="kpi-value" id="calcRmin">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Recommended Reflux</div>
+            <div class="kpi-value" id="calcRopt" style="color:var(--amber)">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Nmin / N Theoretical</div>
+            <div class="kpi-value" id="calcNtheo">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Est. Steam Duty</div>
+            <div class="kpi-value" id="calcSteam">— <small>kg/h</small></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Distillate (D)</div>
+            <div class="kpi-value" id="calcD">— <small>mol/h</small></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Bottoms (B)</div>
+            <div class="kpi-value" id="calcB">— <small>mol/h</small></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">CH₃OH Purity (Distillate)</div>
+            <div class="kpi-value" id="calcPurity">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Distillate CH₃OH (mol%)</div>
+            <div class="kpi-value" id="calcXdMol">—</div>
+          </div>
+        </div>
+      </div>
+
+      <button class="apply-btn" id="pushToDashBtn" style="width:100%; margin-top:14px;" disabled>
+        Push Setpoint → Live Dashboard (Tab 2)
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= TAB 2 — LIVE DASHBOARD (UNCHANGED) ======================= -->
+<div class="tab-panel active" id="tab2">
+
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-label">Current Reflux Ratio</div>
+      <div class="kpi-value" id="kpiRCurrent">—</div>
+      <div class="kpi-delta" style="color:var(--text-lo)" id="kpiRCurrentNote">design reflux</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">AI Optimum Reflux</div>
+      <div class="kpi-value" id="kpiROpt" style="color:var(--amber)">—</div>
+      <div class="kpi-delta" id="kpiRDelta">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Steam Consumption</div>
+      <div class="kpi-value" id="kpiSteam">— <small>kg/h</small></div>
+      <div class="kpi-delta" id="kpiSteamDelta">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">CH₃OH Purity Achieved</div>
+      <div class="kpi-value" id="kpiPurity">—</div>
+      <div class="kpi-delta" id="kpiPurityDelta">—</div>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <div class="panel">
+      <div class="panel-title">Column Schematic — C-204</div>
+      <div class="schematic-wrap">
+        <svg id="schematic" width="260" height="330" viewBox="0 0 260 330">
+          <rect x="90" y="30" width="60" height="220" rx="6" fill="#171c18" stroke="#333f36" stroke-width="1.5"/>
+          <g id="trays"></g>
+          <rect x="70" y="6" width="100" height="20" rx="3" fill="#1a2320" stroke="#333f36"/>
+          <text x="120" y="19" text-anchor="middle" class="tag" fill="#b9c6bd">CONDENSER</text>
+          <rect x="70" y="256" width="100" height="26" rx="3" fill="#1a1712" stroke="#4a3a1e"/>
+          <text x="120" y="273" text-anchor="middle" class="tag" fill="#f5b563">REBOILER</text>
+
+          <line x1="150" y1="16" x2="200" y2="16" stroke="#5fe0d9" stroke-width="2"/>
+          <line id="flowline" x1="200" y1="16" x2="200" y2="60" stroke="#5fe0d9" stroke-width="2"/>
+          <line x1="200" y1="60" x2="150" y2="60" stroke="#5fe0d9" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="204" y="40" class="tag" fill="#5fe0d9">Reflux</text>
+          <text x="204" y="53" class="tagval" id="tagReflux" fill="#5fe0d9">—</text>
+
+          <line x1="170" y1="10" x2="215" y2="10" stroke="#7ad19a" stroke-width="2"/>
+          <circle cx="217" cy="10" r="3" fill="#7ad19a"/>
+          <text x="220" y="8" class="tag" fill="#7ad19a">Distillate</text>
+
+          <line x1="60" y1="140" x2="90" y2="140" stroke="#f5b563" stroke-width="2"/>
+          <text x="15" y="131" class="tag" fill="#f5b563">Feed</text>
+          <text x="15" y="147" class="tagval" id="tagFeed" fill="#f5b563">—</text>
+
+          <line x1="120" y1="282" x2="120" y2="310" stroke="#b9c6bd" stroke-width="2"/>
+          <text x="126" y="304" class="tag" fill="#b9c6bd">Bottoms</text>
+
+          <line x1="70" y1="266" x2="40" y2="266" stroke="#ea7477" stroke-width="2"/>
+          <text x="2" y="257" class="tag" fill="#ea7477">Steam</text>
+          <text x="2" y="273" class="tagval" id="tagSteam" fill="#ea7477">—</text>
+
+          <defs>
+            <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" fill="#5fe0d9"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <div style="border-top:1px solid var(--line); margin-top:6px; padding-top:12px;">
+        <div class="panel-title" style="margin-bottom:8px;">Live Feed Composition (mol%)</div>
+        <div id="feedComp" style="font-family:var(--mono); font-size:13.5px; line-height:2.1;"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="rec-card" id="recCard">
+        <div class="rec-head">
+          <span class="rec-badge" id="recBadge">AI Suggestion</span>
+        </div>
+        <div class="rec-text" id="aiRecText">Solving multicomponent shortcut model (Fenske / Underwood / Gilliland)…</div>
+        <div class="rec-action">
+          <span id="aiRecMetric" style="color:var(--text-mid)"></span>
+          <button class="apply-btn" id="applyBtn">Apply Setpoint</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Steam Consumption — Current vs. AI-Optimum <span style="color:var(--text-lo)">kg/h</span></div>
+        <div class="chart-box"><canvas id="steamChart"></canvas></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <div class="panel-title">Tray Efficiency (fouling proxy) <span style="color:var(--text-lo)">%</span></div>
+        <div class="chart-box"><canvas id="effChart"></canvas></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="panel-title">Root Cause — Contribution Ranking</div>
+        <div id="rootCauseList"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <div class="panel-title">Insight Log</div>
+        <div class="log" id="insightLog"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="disclosure">
+    MODEL DISCLOSURE — Shortcut multicomponent FUG method (Fenske / Underwood / Gilliland-Molokanov). VLE from Antoine
+    vapor pressures + a simplified multicomponent (ternary-extended, symmetric) Margules activity-coefficient model,
+    pairwise-calibrated to literature-typical behavior for CH₃OH–CHCl₃–IPA–H₂O (not regressed NRTL/UNIQUAC). Light key:
+    CH₃OH. Heavy key: H₂O. CHCl₃ and IPA are treated as distributed (non-key) components via Hengstebeck–Geddes.
+    Saturated-liquid feed (q=1) and constant molal overflow assumed. Steam duty is calibrated to a field baseline of
+    750 kg/h at design reflux (R=3.0) — this is a screening-grade tool; validate against a rigorous NRTL/UNIQUAC
+    simulation (e.g. DWSIM) before using outputs to set real DCS setpoints.
+  </div>
+</div>
+
+<!-- ======================= TAB 3 — DATA LOG ======================= -->
+<div class="tab-panel" id="tab3">
+  <div class="panel">
+    <div class="panel-title">
+      <span>Data Log — C-204 Reflux Advisor</span>
+      <div>
+        <button class="apply-btn ghost small" id="clearLogBtn" style="margin-right:8px;">Clear Log</button>
+        <button class="apply-btn small" id="exportBtn">Export to Excel</button>
+      </div>
+    </div>
+    <div class="log-table-wrap">
+      <table id="logTable">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Cycle</th>
+            <th>Feed (LPH)</th>
+            <th>CH₃OH %</th>
+            <th>CHCl₃ %</th>
+            <th>IPA %</th>
+            <th>H₂O %</th>
+            <th>Tray Eff %</th>
+            <th>R Current</th>
+            <th>R Opt</th>
+            <th>Steam Cur (kg/h)</th>
+            <th>Steam Opt (kg/h)</th>
+            <th>Purity wt%</th>
+            <th>Spec Met</th>
+          </tr>
+        </thead>
+        <tbody id="logTableBody"></tbody>
+      </table>
+    </div>
+    <div class="log-meta" id="logMeta">0 entries logged (showing up to 150 most recent — export captures full history, up to 2000 entries).</div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// THERMODYNAMIC / PHYSICAL PROPERTY DATA
+// ============================================================
+const COMPONENTS = ['CH₃OH','CHCl₃','IPA','H₂O'];
+const MW    = [32.04, 119.38, 60.10, 18.02];   // g/mol
+const RHO   = [0.792, 1.489, 0.786, 0.997];    // g/mL (liquid, ~25°C)
+const LAMBDA= [35.3, 29.7, 39.85, 40.7];       // kJ/mol, latent heat of vaporization @ normal bp (approx, NIST/Perry)
+
+// Antoine: log10(P_mmHg) = A - B/(T_C + C)
+const ANTOINE = [
+  {A:8.08097, B:1582.271, C:239.726}, // CH3OH,  15-84°C
+  {A:6.90328, B:1163.03,  C:227.4},   // CHCl3
+  {A:8.11778, B:1580.92,  C:219.61},  // IPA
+  {A:8.07131, B:1730.63,  C:233.426}  // H2O
+];
+
+const MARGULES_A = [
+  [0,     -0.85,  0.05,   0.45],
+  [-0.85,  0,     0.30,   5.50],
+  [0.05,   0.30,  0,      2.10],
+  [0.45,   5.50,  2.10,   0]
+];
+
+const LK = 0; // CH3OH  (target product, light key)
+const HK = 3; // H2O    (heavy key)
+const P_TOTAL = 760; // mmHg, 1 atm
+
+function psat(i, T_C){
+  const {A,B,C} = ANTOINE[i];
+  return Math.pow(10, A - B/(T_C + C)); // mmHg
+}
+
+function lnGamma(i, x){
+  let t1 = 0;
+  for(let j=0;j<4;j++){ if(j===i) continue; t1 += MARGULES_A[i][j]*x[j]*x[j]; }
+  let t2 = 0;
+  for(let j=0;j<4;j++){
+    if(j===i) continue;
+    for(let k=j+1;k<4;k++){
+      if(k===i) continue;
+      t2 += (MARGULES_A[i][j]+MARGULES_A[i][k]-MARGULES_A[j][k]) * x[j]*x[k];
+    }
+  }
+  return t1+t2;
+}
+
+function kValues(x, T_C){
+  const K = [];
+  for(let i=0;i<4;i++){
+    K.push(Math.exp(lnGamma(i,x)) * psat(i,T_C) / P_TOTAL);
+  }
+  return K;
+}
+
+function bubblePointT(x){
+  let lo=40, hi=110;
+  function f(T){ const K=kValues(x,T); return K.reduce((s,k,i)=>s+k*x[i],0) - 1; }
+  let flo = f(lo);
+  for(let iter=0; iter<60; iter++){
+    const mid=(lo+hi)/2, fm=f(mid);
+    if(Math.sign(fm)===Math.sign(flo)){ lo=mid; flo=fm; } else { hi=mid; }
+  }
+  return (lo+hi)/2;
+}
+
+function relativeVolatilities(x){
+  const T = bubblePointT(x);
+  const K = kValues(x,T);
+  return { T, alpha: K.map(k=>k/K[HK]), K };
+}
+
+function molarVolumeMix(x){ // mL per mole of mixture, ideal volume mixing
+  let v=0;
+  for(let i=0;i<4;i++) v += x[i]*(MW[i]/RHO[i]);
+  return v;
+}
+function feedMolarFlow(LPH, x){
+  return (LPH*1000)/molarVolumeMix(x); // mol/h
+}
+
+// ============================================================
+// MULTICOMPONENT FUG SHORTCUT (Fenske / Underwood / Gilliland-Molokanov)
+// ============================================================
+function fugMulticomponent(zF, F_molph, q, recLK_D, recHK_B){
+  let alpha = relativeVolatilities(zF).alpha; // initial guess at feed condition
+  let d = new Array(4), b = new Array(4), Nmin, D_total, B_total, xD, xB;
+
+  for(let iter=0; iter<4; iter++){
+    const alphaLKHK = alpha[LK]/alpha[HK];
+    d[LK] = recLK_D * F_molph * zF[LK];
+    b[LK] = F_molph*zF[LK] - d[LK];
+    b[HK] = recHK_B * F_molph * zF[HK];
+    d[HK] = F_molph*zF[HK] - b[HK];
+
+    Nmin = Math.log( (d[LK]/d[HK]) * (b[HK]/b[LK]) ) / Math.log(alphaLKHK);
+    Nmin = Math.max(Nmin, 0.5);
+
+    const ratioHK = d[HK]/b[HK];
+    for(let i=0;i<4;i++){
+      if(i===LK || i===HK) continue;
+      const ratio = ratioHK * Math.pow(alpha[i], Nmin); // Hengstebeck-Geddes
+      d[i] = F_molph*zF[i] * ratio/(1+ratio);
+      b[i] = F_molph*zF[i] - d[i];
+    }
+
+    D_total = d.reduce((a,v)=>a+v,0);
+    B_total = b.reduce((a,v)=>a+v,0);
+    xD = d.map(v=>v/D_total);
+    xB = b.map(v=>v/B_total);
+
+    const alphaTop = relativeVolatilities(xD).alpha;
+    const alphaBot = relativeVolatilities(xB).alpha;
+    alpha = alphaTop.map((a,i)=>Math.sqrt(a*alphaBot[i])); // geometric-mean alpha refinement
+  }
+
+  // Underwood first equation: root theta between alpha_HK(=1) and alpha_LK
+  let lo = alpha[HK]*1.0001, hi = alpha[LK]*0.9999;
+  function g(theta){ return zF.reduce((s,z,i)=>s+ (alpha[i]*z)/(alpha[i]-theta), 0) - (1-q); }
+  let glo = g(lo);
+  for(let iter=0; iter<80; iter++){
+    const mid=(lo+hi)/2, gm=g(mid);
+    if(Math.sign(gm)===Math.sign(glo)){ lo=mid; glo=gm; } else { hi=mid; }
+  }
+  const theta = (lo+hi)/2;
+
+  let RminPlus1 = 0;
+  for(let i=0;i<4;i++) RminPlus1 += (alpha[i]*xD[i])/(alpha[i]-theta);
+  const Rmin = Math.max(RminPlus1 - 1, 0.05);
+
+  return { Nmin, Rmin, alpha, xD, xB, d, b, D_total, B_total, theta };
+}
+
+function gillilandN(R, Rmin, Nmin){
+  const X = (R-Rmin)/(R+1);
+  const Xc = Math.max(Math.min(X, 0.9999), 0.0001);
+  const Y = 1 - Math.exp( ((1+54.4*Xc)/(11+117.2*Xc)) * ((Xc-1)/Math.sqrt(Xc)) ); // Molokanov form
+  return (Y + Nmin)/(1-Y);
+}
+
+function estimateSteam(V_molph, xComp){
+  const lambdaMix = xComp.reduce((s,x,i)=>s+x*LAMBDA[i],0); // kJ/mol
+  const Q = V_molph * lambdaMix; // kJ/h
+  const steamRaw = Q / CONFIG.lambdaSteam; // kg/h
+  return steamRaw * CONFIG.calibrationFactor;
+}
+
+// ============================================================
+// CONFIG
+// ============================================================
+const CONFIG = {
+  recLK_D: 0.97,      // fraction of CH3OH (LK) recovered to distillate
+  recHK_B: 0.98,       // fraction of H2O (HK) recovered to bottoms
+  q: 1.0,               // feed thermal quality (1 = saturated liquid)
+  RfactorAboveRmin: 1.3,
+  lambdaSteam: 2015,    // kJ/kg, typical LP saturated steam
+  calibrationFactor: 0.611,   // fitted so design-reflux (R=3.0) steam = 750 kg/h actual plant baseline
+  purityTarget_wt: 0.95
+};
+const CONFIG_DESIGN = { R_design: 3.0 };
+
+// ============================================================
+// PLANT EMULATOR (mole-fraction basis)
+// ============================================================
+class PlantEmulator {
+  constructor(){
+    this.base = { ch3oh:0.170, chcl3:0.0087, ipa:0.009 }; // h2o = balance
+    this.baseFeedRate = 2000; // LPH
+    this.t = 0;
+  }
+  tick(){
+    this.t += 1;
+    const n = (s) => (Math.random()-0.5)*2*s;
+    const drift = 0.006*Math.sin(this.t/18);
+
+    const ch3oh = clamp(this.base.ch3oh + drift + n(0.004), 0.14, 0.20);
+    const chcl3 = clamp(this.base.chcl3 + n(0.0015), 0.004, 0.016);
+    const ipa   = clamp(this.base.ipa + n(0.0015), 0.004, 0.016);
+    const h2o   = 1 - ch3oh - chcl3 - ipa;
+    const feedRate = clamp(this.baseFeedRate + n(25), this.baseFeedRate-120, this.baseFeedRate+120);
+
+    // Fouling proxy: gradual tray (Murphree) efficiency decline, independent of VLE
+    const trayEff = clamp(0.80 - 0.0007*this.t + n(0.006), 0.55, 0.82);
+
+    return { z:[ch3oh, chcl3, ipa, h2o], feedRate, trayEff, t:this.t };
+  }
+}
+function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
+
+const emulator = new PlantEmulator();
+
+function rootCauseAnalysis(reading, fug){
+  const chcl3Base = 0.0087, ipaBase = 0.009, ch3ohBase = 0.170;
+  const causes = [];
+  causes.push({ feature:'CHCl₃ in feed (breakthrough risk)',
+    impact: (reading.z[1]/chcl3Base - 1)*2 + Math.abs(reading.z[1]-chcl3Base)/chcl3Base,
+    note:`CHCl₃ at ${(reading.z[1]*100).toFixed(2)} mol% — α(CHCl₃/H₂O)≈${fug.alpha[1].toFixed(0)}, dominant contaminant of CH₃OH distillate` });
+  causes.push({ feature:'Tray efficiency (fouling)',
+    impact: (0.80-reading.trayEff)*4,
+    note:`Effective tray efficiency at ${(reading.trayEff*100).toFixed(0)}% vs. clean baseline 80% — fewer effective stages` });
+  causes.push({ feature:'IPA in feed',
+    impact: Math.abs(reading.z[2]-ipaBase)/ipaBase*1.4,
+    note:`IPA at ${(reading.z[2]*100).toFixed(2)} mol% — secondary distributed-component contaminant` });
+  causes.push({ feature:'Feed rate deviation',
+    impact: Math.abs(reading.feedRate-emulator.baseFeedRate)/emulator.baseFeedRate*1.3,
+    note:`Feed at ${reading.feedRate.toFixed(0)} LPH — ${reading.feedRate>emulator.baseFeedRate?'above':'below'} nominal ${emulator.baseFeedRate.toFixed(0)} LPH` });
+  causes.push({ feature:'CH₃OH feed concentration',
+    impact: Math.abs(reading.z[0]-ch3ohBase)/ch3ohBase*1.1,
+    note:`CH₃OH at ${(reading.z[0]*100).toFixed(2)} mol% vs. nominal ${(ch3ohBase*100).toFixed(1)} mol%` });
+  causes.sort((a,b)=>b.impact-a.impact);
+  return causes;
+}
+
+// ============================================================
+// TAB NAVIGATION
+// ============================================================
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active', p.id===name));
+}
+document.querySelectorAll('.tab-btn').forEach(b=>{
+  b.addEventListener('click', ()=>switchTab(b.dataset.tab));
+});
+
+// ============================================================
+// UI / CHARTS (Tab 2)
+// ============================================================
+const MAX_POINTS = 24;
+const steamHistory = { labels:[], current:[], optimum:[] };
+const effHistory = { labels:[], values:[] };
+let cycle = 0;
+
+const steamCtx = document.getElementById('steamChart').getContext('2d');
+const effCtx = document.getElementById('effChart').getContext('2d');
+
+const chartDefaults = {
+  responsive:true, maintainAspectRatio:false,
+  plugins:{ legend:{ labels:{ color:'#b9c6bd', font:{ family:'monospace', size:12 }, boxWidth:12 } } },
+  scales:{
+    x:{ ticks:{ color:'#8a978e', font:{size:11} }, grid:{ color:'#1c221d' } },
+    y:{ ticks:{ color:'#8a978e', font:{size:11} }, grid:{ color:'#1c221d' } }
+  }
+};
+
+const steamChart = new Chart(steamCtx, {
+  type:'line',
+  data:{ labels:steamHistory.labels, datasets:[
+    { label:'Design reflux (3.0)', data:steamHistory.current, borderColor:'#b9c6bd', backgroundColor:'transparent', tension:0.3, pointRadius:0, borderWidth:1.5 },
+    { label:'AI optimum', data:steamHistory.optimum, borderColor:'#f5b563', backgroundColor:'rgba(245,181,99,0.08)', tension:0.3, pointRadius:0, borderWidth:2, fill:true }
+  ]},
+  options: chartDefaults
+});
+
+const effChart = new Chart(effCtx, {
+  type:'line',
+  data:{ labels:effHistory.labels, datasets:[
+    { label:'Tray efficiency %', data:effHistory.values, borderColor:'#5fe0d9', backgroundColor:'rgba(95,224,217,0.08)', tension:0.3, pointRadius:0, borderWidth:2, fill:true }
+  ]},
+  options: chartDefaults
+});
+
+function logInsight(tag, tagClass, text){
+  const el = document.getElementById('insightLog');
+  const time = new Date().toLocaleTimeString('en-GB',{hour12:false});
+  const item = document.createElement('div');
+  item.className = 'log-item';
+  item.innerHTML = `<span class="log-time">${time}</span><span class="log-tag ${tagClass}">${tag}</span><span>${text}</span>`;
+  el.prepend(item);
+  while(el.children.length > 40) el.removeChild(el.lastChild);
+}
+
+function renderTrays(n){
+  const g = document.getElementById('trays');
+  g.innerHTML = '';
+  const count = Math.max(2, Math.min(14, Math.round(n)));
+  for(let i=0;i<count;i++){
+    const y = 40 + i*(200/count);
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1','92'); line.setAttribute('x2','148');
+    line.setAttribute('y1',y); line.setAttribute('y2',y);
+    line.setAttribute('stroke','#2a332c'); line.setAttribute('stroke-width','1');
+    g.appendChild(line);
+  }
+}
+renderTrays(9);
+
+// ============================================================
+// TAB 3 — DATA LOG
+// ============================================================
+let dataLog = [];
+const LOG_MAX_STORE = 2000;
+const LOG_MAX_ROWS_SHOWN = 150;
+
+function pushLogEntry(reading, R_current, R_opt, steamCurrent, steamOpt, purityPct, purityOk){
+  const entry = {
+    Timestamp: new Date().toLocaleString('en-GB'),
+    Cycle: reading.t,
+    FeedRate_LPH: +reading.feedRate.toFixed(1),
+    CH3OH_mol_pct: +(reading.z[0]*100).toFixed(3),
+    CHCl3_mol_pct: +(reading.z[1]*100).toFixed(3),
+    IPA_mol_pct: +(reading.z[2]*100).toFixed(3),
+    H2O_mol_pct: +(reading.z[3]*100).toFixed(3),
+    TrayEff_pct: +(reading.trayEff*100).toFixed(1),
+    R_current: +R_current.toFixed(3),
+    R_opt: +R_opt.toFixed(3),
+    Steam_current_kgh: +steamCurrent.toFixed(1),
+    Steam_opt_kgh: +steamOpt.toFixed(1),
+    CH3OH_purity_wt_pct: +purityPct.toFixed(2),
+    PuritySpecMet: purityOk ? 'YES' : 'NO'
+  };
+  dataLog.push(entry);
+  if(dataLog.length > LOG_MAX_STORE) dataLog.shift();
+  renderLogTableRow(entry);
+  updateLogMeta();
+}
+
+function renderLogTableRow(entry){
+  const tbody = document.getElementById('logTableBody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>${entry.Timestamp}</td>
+    <td>${entry.Cycle}</td>
+    <td>${entry.FeedRate_LPH}</td>
+    <td>${entry.CH3OH_mol_pct}</td>
+    <td>${entry.CHCl3_mol_pct}</td>
+    <td>${entry.IPA_mol_pct}</td>
+    <td>${entry.H2O_mol_pct}</td>
+    <td>${entry.TrayEff_pct}</td>
+    <td>${entry.R_current}</td>
+    <td>${entry.R_opt}</td>
+    <td>${entry.Steam_current_kgh}</td>
+    <td>${entry.Steam_opt_kgh}</td>
+    <td>${entry.CH3OH_purity_wt_pct}</td>
+    <td style="color:${entry.PuritySpecMet==='YES' ? 'var(--green)' : 'var(--red)'}">${entry.PuritySpecMet}</td>
+  `;
+  tbody.prepend(tr);
+  while(tbody.children.length > LOG_MAX_ROWS_SHOWN) tbody.removeChild(tbody.lastChild);
+}
+
+function updateLogMeta(){
+  document.getElementById('logMeta').textContent =
+    `${dataLog.length} entries logged (showing up to ${LOG_MAX_ROWS_SHOWN} most recent — export captures full history, up to ${LOG_MAX_STORE} entries).`;
+}
+
+function exportLogToExcel(){
+  if(dataLog.length === 0){ alert('No data logged yet — let the dashboard run for a few cycles first.'); return; }
+  const ws = XLSX.utils.json_to_sheet(dataLog);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'C204_DataLog');
+  const fname = `C204_DataLog_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.xlsx`;
+  XLSX.writeFile(wb, fname);
+}
+
+document.getElementById('exportBtn').addEventListener('click', exportLogToExcel);
+document.getElementById('clearLogBtn').addEventListener('click', function(){
+  dataLog = [];
+  document.getElementById('logTableBody').innerHTML = '';
+  updateLogMeta();
+  logInsight('INFO','info','Data log cleared by operator.');
+});
+
+// ============================================================
+// TAB 1 — MANUAL SETPOINT CALCULATOR
+// ============================================================
+let lastCalc = null; // stashes last computed setpoint for the "Push" button
+
+function readTab1Inputs(){
+  const feedRate = parseFloat(document.getElementById('inFeedRate').value) || 0;
+  const ch3ohPct = parseFloat(document.getElementById('inCh3oh').value) || 0;
+  const chcl3Pct = parseFloat(document.getElementById('inChcl3').value) || 0;
+  const ipaPct   = parseFloat(document.getElementById('inIpa').value) || 0;
+  const q        = parseFloat(document.getElementById('inQ').value);
+  const rFactor  = parseFloat(document.getElementById('inRFactor').value) || 1.3;
+  const recLK    = parseFloat(document.getElementById('inRecLK').value);
+  const recHK    = parseFloat(document.getElementById('inRecHK').value);
+  const h2oPct   = 100 - ch3ohPct - chcl3Pct - ipaPct;
+  document.getElementById('inH2o').value = h2oPct.toFixed(2);
+
+  const warn = document.getElementById('inputWarn');
+  if(h2oPct < 0){ warn.style.display = 'block'; } else { warn.style.display = 'none'; }
+
+  return { feedRate, ch3ohPct, chcl3Pct, ipaPct, h2oPct, q, rFactor, recLK, recHK };
+}
+
+function calcTab1(){
+  const inp = readTab1Inputs();
+  if(inp.h2oPct < 0 || inp.feedRate <= 0){
+    document.getElementById('tab1RecBadge').textContent = 'Invalid Input';
+    document.getElementById('tab1RecBadge').classList.add('risk');
+    document.getElementById('tab1RecCard').classList.add('risk');
+    document.getElementById('tab1RecText').textContent =
+      'Check feed rate (>0) and component mol% (CH₃OH + CHCl₃ + IPA must be ≤ 100%).';
+    document.getElementById('pushToDashBtn').disabled = true;
+    return;
+  }
+
+  const zF = [inp.ch3ohPct/100, inp.chcl3Pct/100, inp.ipaPct/100, inp.h2oPct/100];
+  const F = feedMolarFlow(inp.feedRate, zF);
+  const fug = fugMulticomponent(zF, F, inp.q, inp.recLK, inp.recHK);
+
+  const R_opt = fug.Rmin * inp.rFactor;
+  const N_theo = gillilandN(R_opt, fug.Rmin, fug.Nmin);
+  const V_opt = fug.D_total * (R_opt + 1);
+  const steamOpt = estimateSteam(V_opt, fug.xD);
+
+  const distillateMW = fug.xD.reduce((s,x,i)=>s+x*MW[i],0);
+  const xD_ch3oh_wt = (fug.xD[LK]*MW[LK]) / distillateMW;
+  const purityOk = xD_ch3oh_wt >= CONFIG.purityTarget_wt;
+
+  document.getElementById('calcRmin').textContent = fug.Rmin.toFixed(2);
+  document.getElementById('calcRopt').textContent = R_opt.toFixed(2);
+  document.getElementById('calcNtheo').textContent = `${fug.Nmin.toFixed(1)} / ${N_theo.toFixed(1)}`;
+  document.getElementById('calcSteam').innerHTML = `${steamOpt.toFixed(0)} <small>kg/h</small>`;
+  document.getElementById('calcD').innerHTML = `${fug.D_total.toFixed(0)} <small>mol/h</small>`;
+  document.getElementById('calcB').innerHTML = `${fug.B_total.toFixed(0)} <small>mol/h</small>`;
+  document.getElementById('calcPurity').textContent = `${(xD_ch3oh_wt*100).toFixed(1)}%`;
+  document.getElementById('calcXdMol').textContent = `${(fug.xD[LK]*100).toFixed(1)}%`;
+
+  const badge = document.getElementById('tab1RecBadge');
+  const card = document.getElementById('tab1RecCard');
+  const text = document.getElementById('tab1RecText');
+  if(purityOk){
+    card.classList.remove('risk'); badge.classList.remove('risk'); badge.textContent = 'AI Suggestion';
+    text.innerHTML = `Recommended reflux <b style="color:var(--amber)">${R_opt.toFixed(2)}</b> (Rmin=${fug.Rmin.toFixed(2)}, `+
+      `factor ${inp.rFactor.toFixed(2)}×) — model predicts <b style="color:var(--text-hi)">${(xD_ch3oh_wt*100).toFixed(1)}% CH₃OH</b> distillate purity, `+
+      `clearing the 95% spec at ~${N_theo.toFixed(1)} theoretical stages and ${steamOpt.toFixed(0)} kg/h steam.`;
+  } else {
+    card.classList.add('risk'); badge.classList.add('risk'); badge.textContent = 'Purity Risk';
+    text.innerHTML = `At reflux <b style="color:var(--amber)">${R_opt.toFixed(2)}</b>, model predicts only `+
+      `<b style="color:var(--red)">${(xD_ch3oh_wt*100).toFixed(1)}% CH₃OH</b> in distillate — below the 95% target. `+
+      `Consider raising the R-factor, reducing CHCl₃/IPA in feed, or adding a light-ends pre-removal step.`;
+  }
+
+  lastCalc = { zF, feedRate: inp.feedRate, q: inp.q, recLK: inp.recLK, recHK: inp.recHK, rFactor: inp.rFactor };
+  document.getElementById('pushToDashBtn').disabled = false;
+}
+
+document.getElementById('calcBtn').addEventListener('click', calcTab1);
+['inFeedRate','inCh3oh','inChcl3','inIpa'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', readTab1Inputs);
+});
+readTab1Inputs(); // populate H2O balance field on load
+
+document.getElementById('pushToDashBtn').addEventListener('click', function(){
+  if(!lastCalc) return;
+  CONFIG.q = lastCalc.q;
+  CONFIG.recLK_D = lastCalc.recLK;
+  CONFIG.recHK_B = lastCalc.recHK;
+  CONFIG.RfactorAboveRmin = lastCalc.rFactor;
+  emulator.base = { ch3oh: lastCalc.zF[0], chcl3: lastCalc.zF[1], ipa: lastCalc.zF[2] };
+  emulator.baseFeedRate = lastCalc.feedRate;
+  logInsight('INFO','info', `Manual setpoint pushed from Tab 1 — feed ${lastCalc.feedRate.toFixed(0)} LPH, `+
+    `recLK=${lastCalc.recLK}, recHK=${lastCalc.recHK}, R-factor=${lastCalc.rFactor}.`);
+  switchTab('tab2');
+});
+
+// ============================================================
+// MAIN LOOP (drives Tab 2 KPIs/charts and Tab 3 log)
+// ============================================================
+function updateDashboard(){
+  cycle++;
+  const reading = emulator.tick();
+  const F = feedMolarFlow(reading.feedRate, reading.z);
+  const fug = fugMulticomponent(reading.z, F, CONFIG.q, CONFIG.recLK_D, CONFIG.recHK_B);
+  const causes = rootCauseAnalysis(reading, fug);
+
+  const R_current = CONFIG_DESIGN.R_design;
+  const R_opt = fug.Rmin * CONFIG.RfactorAboveRmin;
+  const N_theo = gillilandN(R_opt, fug.Rmin, fug.Nmin);
+  const trays_actual = N_theo / reading.trayEff;
+  renderTrays(trays_actual);
+
+  const V_opt = fug.D_total*(R_opt+1);
+  const V_cur = fug.D_total*(R_current+1);
+  const steamOpt = estimateSteam(V_opt, fug.xD);
+  const steamCurrent = estimateSteam(V_cur, fug.xD);
+  const savedPct = ((steamCurrent-steamOpt)/steamCurrent)*100;
+
+  const distillateMW = fug.xD.reduce((s,x,i)=>s+x*MW[i],0);
+  const xD_ch3oh_wt = (fug.xD[LK]*MW[LK]) / distillateMW;
+  const purityOk = xD_ch3oh_wt >= CONFIG.purityTarget_wt;
+
+  document.getElementById('feedRateDisp').textContent = `${reading.feedRate.toFixed(0)} LPH`;
+  document.getElementById('kpiRCurrent').textContent = R_current.toFixed(2);
+  document.getElementById('kpiROpt').textContent = R_opt.toFixed(2);
+  document.getElementById('kpiRDelta').innerHTML = R_opt < R_current
+    ? `<span style="color:var(--green)">↓ ${(R_current-R_opt).toFixed(2)} vs design</span>`
+    : `<span style="color:var(--red)">↑ ${(R_opt-R_current).toFixed(2)} above design</span>`;
+  document.getElementById('kpiSteam').innerHTML = `${steamOpt.toFixed(0)} <small>kg/h</small>`;
+  document.getElementById('kpiSteamDelta').innerHTML = savedPct>0
+    ? `<span style="color:var(--green)">↓ ${savedPct.toFixed(1)}% vs design baseline</span>`
+    : `<span style="color:var(--red)">↑ ${Math.abs(savedPct).toFixed(1)}% vs design baseline</span>`;
+  document.getElementById('kpiPurity').textContent = `${(xD_ch3oh_wt*100).toFixed(1)}%`;
+  document.getElementById('kpiPurityDelta').innerHTML = purityOk
+    ? `<span style="color:var(--green)">meets 95% target</span>`
+    : `<span style="color:var(--red)">${((CONFIG.purityTarget_wt-xD_ch3oh_wt)*100).toFixed(1)} pts below target</span>`;
+
+  document.getElementById('tagFeed').textContent = `${reading.feedRate.toFixed(0)} LPH`;
+  document.getElementById('tagReflux').textContent = `R ${R_opt.toFixed(2)}`;
+  document.getElementById('tagSteam').textContent = `${steamOpt.toFixed(0)} kg/h`;
+
+  document.getElementById('feedComp').innerHTML = COMPONENTS.map((c,i)=>
+    `<div style="display:flex; justify-content:space-between;"><span style="color:var(--text-mid)">${c}</span><span>${(reading.z[i]*100).toFixed(2)}%</span></div>`
+  ).join('');
+
+  const topCause = causes[0];
+  const recCard = document.getElementById('recCard');
+  const recBadge = document.getElementById('recBadge');
+  if(purityOk){
+    recCard.classList.remove('risk'); recBadge.classList.remove('risk'); recBadge.textContent = 'AI Suggestion';
+    document.getElementById('aiRecText').innerHTML =
+      `Operate at reflux <b style="color:var(--amber)">${R_opt.toFixed(2)}</b> (vs. ${R_current.toFixed(2)} design) —
+       multicomponent shortcut model predicts <b style="color:var(--text-hi)">${(xD_ch3oh_wt*100).toFixed(1)}% CH₃OH</b> distillate purity,
+       clearing the 95% spec. Nmin=${fug.Nmin.toFixed(1)}, N≈${N_theo.toFixed(1)} theoretical stages. Primary driver: <b>${topCause.feature}</b>.`;
+  } else {
+    recCard.classList.add('risk'); recBadge.classList.add('risk'); recBadge.textContent = 'Purity Risk';
+    document.getElementById('aiRecText').innerHTML =
+      `At reflux <b style="color:var(--amber)">${R_opt.toFixed(2)}</b>, model predicts only
+       <b style="color:var(--red)">${(xD_ch3oh_wt*100).toFixed(1)}% CH₃OH</b> in distillate — short of the 95% target.
+       CHCl₃/IPA breakthrough (high relative volatility, α(CHCl₃/H₂O)≈${fug.alpha[1].toFixed(0)}) is limiting achievable purity
+       in this 2-product configuration. Increasing reflux alone has diminishing returns — consider a light-ends
+       pre-removal step or side draw. Primary driver: <b>${topCause.feature}</b>.`;
+  }
+  document.getElementById('aiRecMetric').textContent = `Steam Δ: ${savedPct>=0?'-':'+'}${Math.abs(savedPct).toFixed(1)}%`;
+
+  const rc = document.getElementById('rootCauseList');
+  rc.innerHTML = '';
+  causes.slice(0,5).forEach(c=>{
+    const sev = c.impact > 0.6 ? 'hi' : c.impact > 0.2 ? 'mid' : 'lo';
+    const row = document.createElement('div');
+    row.className = 'cause-item';
+    row.innerHTML = `<div class="cause-bar ${sev}"></div><div class="cause-txt"><b>${c.feature}</b><br>${c.note}</div>`;
+    rc.appendChild(row);
+  });
+
+  const label = `${reading.t}`;
+  steamHistory.labels.push(label); steamHistory.current.push(steamCurrent); steamHistory.optimum.push(steamOpt);
+  effHistory.labels.push(label); effHistory.values.push(reading.trayEff*100);
+  if(steamHistory.labels.length > MAX_POINTS){ steamHistory.labels.shift(); steamHistory.current.shift(); steamHistory.optimum.shift(); }
+  if(effHistory.labels.length > MAX_POINTS){ effHistory.labels.shift(); effHistory.values.shift(); }
+  steamChart.update('none');
+  effChart.update('none');
+
+  if(cycle === 1){
+    logInsight('INFO','info', 'Multicomponent FUG shortcut initialized (Antoine + Margules VLE). LK=CH₃OH, HK=H₂O, CHCl₃/IPA distributed via Hengstebeck-Geddes.');
+  }
+  if(!purityOk && cycle % 6 === 0){
+    logInsight('RISK','risk', `CH₃OH purity ${(xD_ch3oh_wt*100).toFixed(1)}% vs. 95% target — CHCl₃/IPA breakthrough limits separation in current column configuration.`);
+  }
+  if(topCause.feature.startsWith('Tray efficiency') && topCause.impact > 0.5){
+    logInsight('WARN','warn', `Tray efficiency drifting low (${(reading.trayEff*100).toFixed(0)}%) — fouling signature building. Recommend CIP review.`);
+  }
+  if(savedPct > 20){
+    logInsight('GOOD','good', `Wide margin detected — design setpoint ${(R_current-R_opt).toFixed(2)} above AI optimum reflux.`);
+  }
+
+  // Tab 3 — append this cycle to the data log
+  pushLogEntry(reading, R_current, R_opt, steamCurrent, steamOpt, xD_ch3oh_wt*100, purityOk);
+}
+
+document.getElementById('applyBtn').addEventListener('click', function(){
+  logInsight('GOOD','good', 'Operator applied AI-recommended setpoint to DCS.');
+  this.textContent = 'Applied ✓';
+  this.disabled = true;
+  setTimeout(()=>{ this.textContent='Apply Setpoint'; this.disabled=false; }, 4000);
+});
+
+updateDashboard();
+setInterval(updateDashboard, 1800);
+</script>
+</body>
+</html>
