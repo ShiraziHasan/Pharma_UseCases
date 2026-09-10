@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raw Material Inventory Action Center | Rifampicin Plant</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#141e2b; --panel2:#182636; --border:#233246;
+    --text:#e7edf3; --muted:#8ea0b5;
+    --teal:#2dd4bf; --blue:#3b82f6; --amber:#f59e0b; --red:#ef4444; --green:#22c55e; --purple:#a855f7;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Segoe UI',Roboto,Arial,sans-serif;background:#0f1720;color:var(--text);}
+  header{display:flex;justify-content:space-between;align-items:center;padding:18px 28px;border-bottom:1px solid var(--border);background:var(--panel);}
+  header .brand{display:flex;align-items:center;gap:12px;}
+  header .brand .logo{width:38px;height:38px;border-radius:9px;background:linear-gradient(135deg,var(--teal),var(--blue));display:flex;align-items:center;justify-content:center;font-weight:700;color:#06131a;}
+  header h1{font-size:16px;margin:0;}
+  header p{margin:2px 0 0;font-size:12px;color:var(--muted);}
+  header .meta{text-align:right;font-size:12px;color:var(--muted);}
+  .status-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(34,197,94,.12);color:var(--green);padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;margin-top:6px;}
+  .status-pill i{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;}
+
+  main{padding:22px 28px 60px;max-width:1440px;margin:0 auto;}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:22px;}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
+  .kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+  .kpi .value{font-size:24px;font-weight:700;margin-top:6px;}
+  .kpi .delta{font-size:12px;margin-top:4px;}
+  .up{color:var(--green);} .down{color:var(--red);} .warn{color:var(--amber);}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:18px;}
+  .card h2{font-size:14px;margin:0 0 4px;}
+  .card .sub{font-size:12px;color:var(--muted);margin-bottom:14px;}
+
+  .grid-2{display:grid;grid-template-columns:1.6fr 1fr;gap:18px;}
+  @media(max-width:1000px){.grid-2{grid-template-columns:1fr;}}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th,td{padding:10px 8px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top;}
+  th{color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.03em;}
+  tr:hover td{background:var(--panel2);}
+
+  .tag{padding:3px 8px;border-radius:6px;font-size:10.5px;font-weight:700;white-space:nowrap;display:inline-block;}
+  .tag.stockout{background:rgba(239,68,68,.15);color:var(--red);}
+  .tag.spoilage{background:rgba(168,85,247,.15);color:var(--purple);}
+  .tag.expedite{background:rgba(245,158,11,.15);color:var(--amber);}
+  .tag.ok{background:rgba(34,197,94,.15);color:var(--green);}
+  .tag.hold{background:rgba(148,163,184,.15);color:#94a3b8;}
+
+  .action-row td{border-bottom:1px solid var(--border);}
+  .action-title{font-weight:700;font-size:13px;}
+  .action-reason{color:var(--muted);font-size:11.5px;margin-top:2px;}
+  .qty-box{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:11.5px;min-width:150px;}
+  .qty-box .cap{color:var(--amber);font-weight:700;}
+
+  .bar-wrap{background:#0b141d;border-radius:6px;height:6px;width:90px;overflow:hidden;display:inline-block;vertical-align:middle;}
+  .bar-fill{height:100%;border-radius:6px;}
+
+  footer{padding:16px 28px;text-align:center;font-size:11px;color:var(--muted);border-top:1px solid var(--border);}
+  canvas{max-height:230px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo">RM</div>
+    <div>
+      <h1>Raw Material Inventory Action Center</h1>
+      <p>Rifampicin Manufacturing Plant · Shelf-Life-Aware Reorder Engine</p>
+    </div>
+  </div>
+  <div class="meta">
+    <span id="clock">—</span>
+    <div class="status-pill"><i></i>Reorder Engine: Active</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- KPI STRIP -->
+  <div class="kpi-grid" id="kpiGrid"></div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>Full Raw Material Stock — Shelf-Life-Adjusted View</h2>
+      <div class="sub">Days-of-cover vs. days-to-expiry, side by side</div>
+      <table>
+        <thead>
+          <tr><th>Material</th><th>Stock Cover</th><th>Days to Expiry</th><th>Status</th></tr>
+        </thead>
+        <tbody id="stockTable"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Stock Cover vs. Shelf Life</h2>
+      <div class="sub">Bars crossing = risk zone (expiry hits before stock runs out, or runs out before replenishment)</div>
+      <canvas id="coverChart"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Reorder Quantity Logic — How the Cap Works</h2>
+    <div class="sub">Example: standard demand-based order vs. shelf-life-capped order</div>
+    <canvas id="exampleChart" style="max-height:260px;"></canvas>
+  </div>
+
+  <!-- ACTION QUEUE (moved to end) -->
+  <div class="card">
+    <h2>Action Queue — Ranked by Urgency</h2>
+    <div class="sub">Every reorder is checked against remaining shelf life before quantity is confirmed — prevents ordering material that will expire before it can be used.</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Material</th>
+          <th>Situation</th>
+          <th>Action</th>
+          <th>Recommended Qty</th>
+          <th>Flag</th>
+        </tr>
+      </thead>
+      <tbody id="actionTable"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>
+  Mock demo dashboard for consulting use · Illustrative data only · Reorder quantities are shelf-life-capped to prevent spoilage-driven waste
+</footer>
+
+<script>
+function tickClock(){
+  document.getElementById('clock').textContent = new Date().toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'medium' });
+}
+tickClock(); setInterval(tickClock, 1000);
+
+Chart.defaults.color = '#8ea0b5';
+Chart.defaults.font.family = "'Segoe UI', Roboto, Arial, sans-serif";
+Chart.defaults.font.size = 11;
+
+/* ============================================================
+   CORE DATA MODEL — Rifampicin plant
+   Fermentation inputs feed on-site fermentation -> crude rifamycin
+   -> chemically converted to Rifampicin. Solvents used across
+   extraction/purification/crystallization stages.
+   ============================================================ */
+const materials = [
+  // Fermentation inputs (feed the in-house fermentation step)
+  { name:'Fermentation Nutrient Media (Soy/Glucose Base)', cat:'Fermentation Input', stockDays:12, expiryDays:30,  leadTimeDays:10, standardOrderDays:25 },
+  { name:'Fermentation Trace Salts & Minerals',            cat:'Fermentation Input', stockDays:20, expiryDays:200, leadTimeDays:8,  standardOrderDays:24 },
+  { name:'Amycolatopsis mediterranei Seed Culture',        cat:'Fermentation Input', stockDays:15, expiryDays:20,  leadTimeDays:14, standardOrderDays:20 },
+
+  // Solvents (extraction / purification / crystallization)
+  { name:'Methanol (Solvent)',                   cat:'Solvent', stockDays:10, expiryDays:365, leadTimeDays:6,  standardOrderDays:22 },
+  { name:'Methylene Dichloride - MDC (Solvent)', cat:'Solvent', stockDays:8,  expiryDays:365, leadTimeDays:7,  standardOrderDays:20 },
+  { name:'Isopropyl Alcohol - IPA (Solvent)',    cat:'Solvent', stockDays:14, expiryDays:365, leadTimeDays:5,  standardOrderDays:24 },
+  { name:'Chloroform (Solvent)',                 cat:'Solvent', stockDays:6,  expiryDays:180, leadTimeDays:9,  standardOrderDays:18 },
+
+  // Rifampicin semi-finished / API and FDC partner APIs
+  { name:'Rifampicin (Semi-Finished, Post-Fermentation)', cat:'Semi-Finished', stockDays:8,  expiryDays:14,  leadTimeDays:9, standardOrderDays:24 },
+  { name:'Isoniazid API (FDC Partner Drug)',   cat:'API', stockDays:10, expiryDays:90,  leadTimeDays:7, standardOrderDays:21 },
+  { name:'Pyrazinamide API (FDC Partner)',     cat:'API', stockDays:12, expiryDays:110, leadTimeDays:8, standardOrderDays:23 },
+  { name:'Ethambutol HCl (FDC Partner)',       cat:'API', stockDays:9,  expiryDays:95,  leadTimeDays:8, standardOrderDays:20 },
+
+  // Excipients
+  { name:'Ascorbic Acid (Anti-Oxidant, Rif.)', cat:'Excipient', stockDays:7,  expiryDays:9,   leadTimeDays:5, standardOrderDays:16 },
+  { name:'Lactose Monohydrate',                cat:'Excipient', stockDays:9,  expiryDays:120, leadTimeDays:4, standardOrderDays:20 },
+  { name:'Magnesium Stearate',                 cat:'Excipient', stockDays:11, expiryDays:150, leadTimeDays:6, standardOrderDays:19 },
+  { name:'Microcrystalline Cellulose',         cat:'Excipient', stockDays:22, expiryDays:180, leadTimeDays:5, standardOrderDays:20 },
+  { name:'Sodium Starch Glycolate',            cat:'Excipient', stockDays:7,  expiryDays:9,   leadTimeDays:6, standardOrderDays:17 },
+
+  // Packaging
+  { name:'Anti-TB Combi-Blister Foil (PVC/Alu)', cat:'Packaging', stockDays:20, expiryDays:300, leadTimeDays:9,  standardOrderDays:28 },
+  { name:'Gelatin Capsule Shells',               cat:'Packaging', stockDays:15, expiryDays:200, leadTimeDays:7,  standardOrderDays:22 },
+];
+
+/* ============================================================
+   SHELF-LIFE-AWARE REORDER ENGINE
+   1. "Usable window" = min(expiryDays, standardOrderDays + leadTimeDays)
+   2. stockDays <= leadTimeDays -> stockout risk before replenishment arrives.
+   3. expiryDays <= leadTimeDays -> spoilage risk: new order lands
+      AFTER current batch's usable window — expedite small batch instead.
+   4. expiryDays < standardOrderDays -> cap order qty to what's
+      consumable before expiry.
+   5. expiryDays < stockDays -> stock on hand will expire before use
+      -> flag spoilage on EXISTING stock, not reorder.
+   ============================================================ */
+function evaluate(m){
+  const cappedOrderDays = Math.min(m.standardOrderDays, Math.max(m.expiryDays - m.leadTimeDays, 0));
+  const isStockoutRisk  = m.stockDays <= m.leadTimeDays;
+  const isSpoilageOnHand = m.expiryDays < m.stockDays;
+  const isOrderCapped   = cappedOrderDays < m.standardOrderDays && cappedOrderDays > 0;
+  const isSpoilageBeforeReplenishment = m.expiryDays <= m.leadTimeDays;
+
+  let flag, action, reason, recQty, situation;
+
+  if (isSpoilageOnHand) {
+    flag = 'spoilage';
+    situation = 'Current stock will expire before it is consumed';
+    action = 'Hold new order — prioritize usage/redistribution of existing stock';
+    reason = `${m.expiryDays}d to expiry vs ${m.stockDays}d of stock on hand`;
+    recQty = `0 units — consume existing stock first`;
+  } else if (isSpoilageBeforeReplenishment) {
+    flag = 'spoilage';
+    situation = 'New order would arrive after usable window closes';
+    action = 'Expedite small batch order (partial qty, shorter cycle)';
+    reason = `Lead time ${m.leadTimeDays}d ≥ shelf life ${m.expiryDays}d remaining`;
+    recQty = `~${Math.max(Math.round(cappedOrderDays),3)}d cover only — split into 2 smaller orders`;
+  } else if (isStockoutRisk && isOrderCapped) {
+    flag = 'expedite';
+    situation = 'Low stock + short shelf life on incoming batch';
+    action = 'Expedite order, but cap quantity to avoid over-ordering';
+    reason = `Stock covers ${m.stockDays}d, lead time ${m.leadTimeDays}d — order capped by ${m.expiryDays}d shelf life`;
+    recQty = `${cappedOrderDays}d cover <span class="cap">(capped from ${m.standardOrderDays}d)</span>`;
+  } else if (isStockoutRisk) {
+    flag = 'stockout';
+    situation = 'Stock will run out before replenishment arrives';
+    action = 'Raise standard reorder immediately';
+    reason = `Stock covers ${m.stockDays}d vs lead time ${m.leadTimeDays}d`;
+    recQty = `${m.standardOrderDays}d cover (standard)`;
+  } else if (isOrderCapped) {
+    flag = 'expedite';
+    situation = 'Adequate stock, but shelf life limits future order size';
+    action = 'Plan next order at reduced quantity';
+    reason = `Shelf life ${m.expiryDays}d shorter than standard order cycle`;
+    recQty = `${cappedOrderDays}d cover <span class="cap">(capped from ${m.standardOrderDays}d)</span>`;
+  } else {
+    flag = 'ok';
+    situation = 'Stock and shelf life within safe range';
+    action = 'No action needed';
+    reason = `Stock ${m.stockDays}d, expiry ${m.expiryDays}d — both comfortable`;
+    recQty = `—`;
+  }
+
+  return { ...m, flag, situation, action, reason, recQty };
+}
+
+const evaluated = materials.map(evaluate);
+const rank = { spoilage:0, stockout:1, expedite:2, ok:3, hold:4 };
+const ranked = [...evaluated].sort((a,b)=> rank[a.flag]-rank[b.flag]);
+
+/* ---------- KPI Strip (computed dynamically) ---------- */
+const kpiGrid = document.getElementById('kpiGrid');
+const nSpoilage = evaluated.filter(m=>m.flag==='spoilage').length;
+const nStockout = evaluated.filter(m=>m.flag==='stockout').length;
+const nExpedite = evaluated.filter(m=>m.flag==='expedite').length;
+const nOpenActions = evaluated.filter(m=>m.flag!=='ok').length;
+const avgCover = (evaluated.reduce((s,m)=>s+m.stockDays,0)/evaluated.length).toFixed(1);
+kpiGrid.innerHTML = `
+  <div class="kpi">
+    <div class="label">Open Actions</div>
+    <div class="value">${nOpenActions}</div>
+    <div class="delta warn">${nSpoilage} spoilage-adjusted orders</div>
+  </div>
+  <div class="kpi">
+    <div class="label">SKUs at Stockout Risk</div>
+    <div class="value down">${nStockout}</div>
+    <div class="delta">within lead-time window</div>
+  </div>
+  <div class="kpi">
+    <div class="label">SKUs at Spoilage Risk</div>
+    <div class="value" style="color:var(--purple);">${nSpoilage}</div>
+    <div class="delta">expiry before full consumption</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Orders Capped by Shelf Life</div>
+    <div class="value">${nExpedite}</div>
+    <div class="delta warn">qty reduced vs. standard reorder</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Avg. Days-of-Cover (all RM)</div>
+    <div class="value">${avgCover}</div>
+    <div class="delta up">within target band</div>
+  </div>
+`;
+
+/* ---------- Render Full Stock Table ---------- */
+const stockTable = document.getElementById('stockTable');
+evaluated.forEach(m=>{
+  const coverPct = Math.min(100,(m.stockDays/40)*100);
+  const expPct = Math.min(100,(m.expiryDays/60)*100);
+  const barColor = m.flag==='spoilage' ? '#a855f7' : m.flag==='stockout' ? '#ef4444' : m.flag==='expedite' ? '#f59e0b' : '#22c55e';
+  const row = document.createElement('tr');
+  row.innerHTML = `
+    <td>${m.name}</td>
+    <td><div class="bar-wrap"><div class="bar-fill" style="width:${coverPct}%;background:${barColor};"></div></div> ${m.stockDays}d</td>
+    <td><div class="bar-wrap"><div class="bar-fill" style="width:${expPct}%;background:${barColor};"></div></div> ${m.expiryDays}d</td>
+    <td><span class="tag ${m.flag}">${m.flag.toUpperCase()}</span></td>
+  `;
+  stockTable.appendChild(row);
+});
+
+/* ---------- Cover vs Expiry Chart ---------- */
+new Chart(document.getElementById('coverChart'), {
+  type: 'bar',
+  data: {
+    labels: evaluated.map(m=>m.name.split(' (')[0]),
+    datasets: [
+      { label:'Stock Cover (days)', data: evaluated.map(m=>m.stockDays), backgroundColor:'#3b82f6', borderRadius:4 },
+      { label:'Days to Expiry', data: evaluated.map(m=>m.expiryDays>60?60:m.expiryDays), backgroundColor:'#a855f7', borderRadius:4 }
+    ]
+  },
+  options: {
+    indexAxis:'y',
+    plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10 } } },
+    scales:{ x:{ grid:{ color:'#1c2836' } }, y:{ grid:{ display:false } } }
+  }
+});
+
+/* ---------- Example Logic Chart (Rifampicin semi-finished case) ---------- */
+new Chart(document.getElementById('exampleChart'), {
+  type: 'bar',
+  data: {
+    labels: ['Standard Demand-Based Order','Shelf-Life-Capped Order (Recommended)'],
+    datasets: [{
+      label:'Order Size (days-of-cover)',
+      data:[24, 5], // Rifampicin semi-finished: 24d standard vs ~5d given 14d expiry - 9d lead time
+      backgroundColor:['#ef4444','#22c55e'],
+      borderRadius:6
+    }]
+  },
+  options: {
+    indexAxis:'y',
+    plugins:{
+      legend:{ display:false },
+      title:{ display:true, text:'Rifampicin (Semi-Finished) — 14-day shelf life, 9-day supplier lead time', color:'#8ea0b5', font:{ size:11 } }
+    },
+    scales:{ x:{ grid:{ color:'#1c2836' } }, y:{ grid:{ display:false } } }
+  }
+});
+
+/* ---------- Render Action Queue (moved to end) ---------- */
+const actionTable = document.getElementById('actionTable');
+ranked.filter(m=>m.flag!=='ok').forEach(m=>{
+  const row = document.createElement('tr');
+  row.className='action-row';
+  row.innerHTML = `
+    <td><div class="action-title">${m.name}</div><div class="action-reason">${m.cat}</div></td>
+    <td>${m.situation}<div class="action-reason">${m.reason}</div></td>
+    <td>${m.action}</td>
+    <td><div class="qty-box">${m.recQty}</div></td>
+    <td><span class="tag ${m.flag}">${m.flag.toUpperCase()}</span></td>
+  `;
+  actionTable.appendChild(row);
+});
+</script>
+
+</body>
+</html>
