@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Batch Start Timing — Based on OD Reading</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --muted: #8b93a3;
+    --green: #3ddc84;
+    --yellow: #f4c542;
+    --red: #ef5350;
+    --accent: #5b8def;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .card h2 { font-size: 14px; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+
+  canvas { width: 100%; height: 240px; }
+
+  .controls { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  button {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .stat {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .stat .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .stat .value { font-size: 18px; font-weight: 700; }
+
+  .verdict-box {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .verdict-box .status { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  .verdict-box .detail { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+  .rec-time { font-size: 22px; font-weight: 700; margin-top: 10px; }
+  .rec-sub { font-size: 12px; color: var(--muted); }
+
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+</style>
+</head>
+<body>
+
+<h1>Optimum Batch Start Time — OD Reading Based</h1>
+<div class="subtitle">Tracks the current batch's spectrophotometric (OD600) trend and flags when the vessel will be ready for the next batch, based purely on plateau detection.</div>
+
+<div class="layout">
+
+  <!-- LEFT: Live Reading -->
+  <div class="card">
+    <h2>Live OD600 Trend (Current Batch)</h2>
+    <div class="controls">
+      <button class="primary" id="startBtn">Start Simulated Reading</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+    <canvas id="odChart" width="500" height="240"></canvas>
+    <div class="stat-row">
+      <div class="stat">
+        <div class="label">Current OD600</div>
+        <div class="value" id="currentOD">--</div>
+      </div>
+      <div class="stat">
+        <div class="label">Rate of change</div>
+        <div class="value" id="rateChange">--</div>
+      </div>
+      <div class="stat">
+        <div class="label">Time elapsed</div>
+        <div class="value" id="timeElapsed">0 h</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Verdict -->
+  <div class="card">
+    <h2>Next Batch Start Assessment</h2>
+    <div class="verdict-box">
+      <div class="status" id="statusText"><span class="dot" style="background:var(--muted)"></span>Waiting for data…</div>
+      <div class="detail" id="statusDetail">
+        Once the OD600 reading plateaus (rate of change stays below threshold for 3 consecutive readings), the current batch is considered near completion, and the vessel will soon be free for the next batch.
+      </div>
+      <div class="rec-time" id="recTime">--</div>
+      <div class="rec-sub">Estimated vessel-ready time (harvest → clean → next inoculation)</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const canvas = document.getElementById('odChart');
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width, height = canvas.height;
+
+  let data = [];       // OD readings
+  let timeHrs = [];    // corresponding time in hours
+  let interval = null;
+  let t = 0;
+
+  const plateauThreshold = 0.03;   // OD change per hour considered "flat"
+  const requiredFlatReadings = 3;  // consecutive flat readings to confirm plateau
+  const cleanupHours = 4;          // harvest + CIP/SIP turnaround time after plateau detected
+
+  document.getElementById('startBtn').addEventListener('click', () => {
+    if (interval) return;
+    interval = setInterval(tick, 400); // 1 reading per 0.4s (simulated)
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    clearInterval(interval);
+    interval = null;
+    data = [];
+    timeHrs = [];
+    t = 0;
+    draw();
+    document.getElementById('currentOD').textContent = '--';
+    document.getElementById('rateChange').textContent = '--';
+    document.getElementById('timeElapsed').textContent = '0 h';
+    setStatus('waiting', 'Waiting for data…',
+      'Once the OD600 reading plateaus (rate of change stays below threshold for 3 consecutive readings), the current batch is considered near completion.');
+    document.getElementById('recTime').textContent = '--';
+  });
+
+  function simulatedOD(hour) {
+    // Logistic growth curve: lag -> log -> stationary, plus small noise
+    const carryingCapacity = 8.5;
+    const growthRate = 0.55;
+    const lag = 3;
+    const base = carryingCapacity / (1 + Math.exp(-growthRate * (hour - lag - 5)));
+    const noise = (Math.random() - 0.5) * 0.08;
+    return Math.max(0, base + noise);
+  }
+
+  function tick() {
+    t += 0.5; // each tick = 0.5 simulated hour
+    const od = simulatedOD(t);
+    data.push(od);
+    timeHrs.push(t);
+
+    document.getElementById('currentOD').textContent = od.toFixed(2);
+    document.getElementById('timeElapsed').textContent = t.toFixed(1) + ' h';
+
+    if (data.length >= 2) {
+      const rate = (data[data.length - 1] - data[data.length - 2]) / 0.5;
+      document.getElementById('rateChange').textContent = rate.toFixed(3) + ' /h';
+      checkPlateau(rate);
+    }
+
+    draw();
+
+    if (t > 30) { // stop after 30 simulated hours
+      clearInterval(interval);
+      interval = null;
+    }
+  }
+
+  let flatCount = 0;
+  let plateauFlaggedAt = null;
+
+  function checkPlateau(rate) {
+    if (Math.abs(rate) < plateauThreshold) {
+      flatCount++;
+    } else {
+      flatCount = 0;
+    }
+
+    if (flatCount === 1 && plateauFlaggedAt === null) {
+      setStatus('growing', '<span class="dot" style="background:var(--yellow)"></span>Approaching plateau',
+        'Growth rate is slowing. Batch is entering stationary phase — not yet ready to plan next start.');
+    }
+
+    if (flatCount >= requiredFlatReadings && plateauFlaggedAt === null) {
+      plateauFlaggedAt = t;
+      const readyTime = plateauFlaggedAt + cleanupHours;
+      setStatus('ready', '<span class="dot" style="background:var(--green)"></span>Plateau confirmed — batch nearing completion',
+        `OD600 has stabilized for ${requiredFlatReadings} consecutive readings (plateau detected at t = ${plateauFlaggedAt.toFixed(1)} h). Harvest can begin, and after cleaning/turnaround the vessel will be ready for the next batch.`);
+      document.getElementById('recTime').textContent = `~${readyTime.toFixed(1)} h from batch start`;
+    } else if (flatCount < requiredFlatReadings && plateauFlaggedAt === null && flatCount === 0 && t > 5) {
+      setStatus('growing', '<span class="dot" style="background:var(--accent)"></span>Active growth phase',
+        'OD600 is still rising steadily. Current batch is in exponential phase — too early to plan next batch start.');
+    }
+  }
+
+  function setStatus(cls, statusHTML, detailText) {
+    document.getElementById('statusText').innerHTML = statusHTML;
+    document.getElementById('statusDetail').textContent = detailText;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, width, height);
+
+    // grid
+    ctx.strokeStyle = '#2a2f3a';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = (height / 4) * i;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+
+    if (data.length < 2) return;
+
+    const maxOD = 10;
+    const maxT = 30;
+
+    ctx.strokeStyle = '#5b8def';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((od, i) => {
+      const x = (timeHrs[i] / maxT) * width;
+      const y = height - (od / maxOD) * height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // plateau marker
+    if (plateauFlaggedAt !== null) {
+      const x = (plateauFlaggedAt / maxT) * width;
+      ctx.strokeStyle = '#3ddc84';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  draw();
+</script>
+
+</body>
+</html>
