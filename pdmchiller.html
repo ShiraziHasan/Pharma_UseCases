@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chiller Predictive Maintenance Dashboard</title>
+<style>
+:root{
+  --bg:#f4f6fb; --panel:#ffffff; --panel2:#eef1f8; --border:#dbe1ee;
+  --text:#131b2e; --muted:#5b6478; --accent:#0f9c90; --good:#1a9e5c;
+  --warn:#b8790a; --bad:#d43f4f; --blue:#3b6fd4;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Segoe UI',Roboto,Arial,sans-serif;}
+header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;}
+header h1{margin:0;font-size:20px;font-weight:600;}
+header p{margin:2px 0 0;color:var(--muted);font-size:13px;}
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.controls label{font-size:12px;color:var(--muted);margin-right:4px;}
+input[type=file], input[type=number]{
+  background:var(--panel2);border:1px solid var(--border);color:var(--text);
+  padding:7px 10px;border-radius:6px;font-size:13px;
+}
+button{background:var(--accent);border:none;color:#04231f;font-weight:600;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;}
+.container{padding:24px 28px;max-width:1500px;margin:0 auto;}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px;}
+.kpi-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
+.kpi-card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
+.kpi-card .value{font-size:24px;font-weight:700;margin-top:6px;}
+.kpi-card .sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.grid2{display:grid;grid-template-columns:1.1fr 1.9fr;gap:16px;margin-bottom:16px;}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;}
+.panel h2{margin:0 0 12px;font-size:15px;color:var(--text);}
+.panel h2 span{color:var(--muted);font-weight:400;font-size:12px;}
+.gauge-wrap{display:flex;flex-direction:column;align-items:center;}
+#gaugeChart{width:260px;height:160px;display:block;}
+#healthLabel{font-size:34px;font-weight:800;margin-top:-8px;}
+#healthStatus{font-size:13px;color:var(--muted);margin-top:2px;margin-bottom:6px;}
+.insights{list-style:none;padding:0;margin:0;}
+.insights li{padding:9px 10px;border-radius:6px;margin-bottom:8px;font-size:13px;line-height:1.4;border-left:3px solid var(--blue);background:var(--panel2);}
+.insights li.warn{border-left-color:var(--warn);}
+.insights li.bad{border-left-color:var(--bad);}
+.insights li.good{border-left-color:var(--good);}
+.insights li.note{border-left-color:var(--muted);font-style:italic;font-size:12px;color:var(--muted);}
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px;}
+.chart-box{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;}
+.chart-box h3{margin:0 0 10px;font-size:13px;color:var(--muted);font-weight:600;}
+.chart-box canvas{width:100%;height:260px;display:block;}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
+.sev-high{color:var(--bad);font-weight:700;}
+.sev-med{color:var(--warn);font-weight:700;}
+.sev-low{color:var(--blue);font-weight:700;}
+.empty{color:var(--muted);text-align:center;padding:40px;font-size:14px;}
+.errbanner{background:#3a1620;border:1px solid var(--bad);color:#ffb3ba;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Chiller Predictive Maintenance Dashboard</h1>
+    <p>Fully offline — no external libraries. Upload per-minute chiller telemetry CSV.</p>
+  </div>
+  <div class="controls">
+    <div><label>CSV file</label><br><input type="file" id="fileInput" accept=".csv"></div>
+    <div><label>Service interval (running hrs)</label><br><input type="number" id="serviceInterval" value="2000" style="width:100px"></div>
+    <div><label>Nominal Volts</label><br><input type="number" id="nomVolts" value="400" style="width:90px"></div>
+    <div><label>Volts band %</label><br><input type="number" id="voltsBand" value="10" style="width:70px"></div>
+    <div><label>Critical score threshold</label><br><input type="number" id="critScore" value="50" style="width:70px"></div>
+    <button id="reprocessBtn">Re-run analysis</button>
+  </div>
+</header>
+
+<div class="container" id="app">
+  <div class="empty">Upload a CSV to begin.</div>
+</div>
+
+<script>
+let RAW = [];
+
+// ---------- local CSV parser (no external library) ----------
+function parseCSV(text){
+  const rows=[]; let i=0, field='', row=[], inQuotes=false;
+  const pushField=()=>{ row.push(field); field=''; };
+  const pushRow=()=>{ pushField(); rows.push(row); row=[]; };
+  while(i<text.length){
+    const c=text[i];
+    if(inQuotes){
+      if(c==='"'){ if(text[i+1]==='"'){field+='"'; i+=2; continue;} inQuotes=false; i++; continue; }
+      field+=c; i++; continue;
+    } else {
+      if(c==='"'){ inQuotes=true; i++; continue; }
+      if(c===','){ pushField(); i++; continue; }
+      if(c==='\r'){ i++; continue; }
+      if(c==='\n'){ pushRow(); i++; continue; }
+      field+=c; i++; continue;
+    }
+  }
+  if(field.length || row.length) pushRow();
+  const filtered = rows.filter(r=> r.some(v=>v.trim()!==''));
+  if(!filtered.length) return [];
+  const headers = filtered[0].map(h=>h.trim());
+  return filtered.slice(1).map(r=>{
+    const obj={}; headers.forEach((h,idx)=> obj[h]= r[idx]!==undefined ? r[idx].trim() : '');
+    return obj;
+  });
+}
+
+document.getElementById('fileInput').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = evt=>{
+    try{
+      const parsed = parseCSV(evt.target.result);
+      RAW = cleanRows(parsed);
+      if(RAW.length===0){
+        document.getElementById('app').innerHTML =
+          `<div class="empty">Parsed ${parsed.length} raw row(s) but 0 were usable after cleaning.<br>
+           Check your CSV has a <b>timestamp</b> column (DD/MM/YYYY HH:mm) and a <b>KW</b> column.
+           <br><span style="font-size:11px">Sample parsed row (F12 console has more): ${JSON.stringify(parsed[0]||{})}</span></div>`;
+        console.warn('0 valid rows. Sample raw row:', parsed[0]);
+        return;
+      }
+      run();
+    } catch(err){
+      document.getElementById('app').innerHTML = `<div class="empty">CSV read error: ${err.message}</div>`;
+      console.error(err);
+    }
+  };
+  reader.onerror = ()=>{ document.getElementById('app').innerHTML = `<div class="empty">Could not read file.</div>`; };
+  reader.readAsText(file);
+});
+document.getElementById('reprocessBtn').addEventListener('click', ()=>{ if(RAW.length) run(); });
+
+function parseTs(s){
+  if(!s) return new Date(NaN);
+  const parts = String(s).trim().split(' ');
+  const datePart = parts[0], timePart = parts[1] || '0:0';
+  const dp = datePart.split('/').map(Number);
+  if(dp.length<3 || dp.some(isNaN)) return new Date(NaN);
+  const [d,m,y] = dp;
+  const tp = timePart.split(':').map(Number);
+  return new Date(y, m-1, d, tp[0]||0, tp[1]||0);
+}
+
+function cleanRows(rows){
+  return rows.filter(r=>r.timestamp && r.KW!==undefined && r.KW!=='')
+    .map(r=>({
+      ts: parseTs(r.timestamp),
+      amps:+r.AMPS, kvah:+r.KVAH, volts:+r.VOLTS, pf:+r.PF,
+      rh:+r.RUNNING_HOURS, kw:+r.KW, kwh:+r.KWH, kwset:+r.KWSET,
+      desc:r.DESCRIPTION||'', asset:r.AssetName||r.AssetThingName||''
+    }))
+    .filter(r=>!isNaN(r.ts.getTime()))
+    .sort((a,b)=>a.ts-b.ts);
+}
+
+// ---------- stats helpers ----------
+const mean = a => a.reduce((s,v)=>s+v,0)/(a.length||1);
+const std = a => { const m=mean(a); return Math.sqrt(mean(a.map(v=>(v-m)**2))); };
+function linreg(ys){
+  const n=ys.length, xs=[...Array(n).keys()];
+  const mx=mean(xs), my=mean(ys);
+  let num=0, den=0;
+  for(let i=0;i<n;i++){ num+=(xs[i]-mx)*(ys[i]-my); den+=(xs[i]-mx)**2; }
+  const slope = den===0?0:num/den;
+  return { slope };
+}
+function downsample(arr, maxPts=400){
+  if(arr.length<=maxPts) return arr;
+  const step = Math.ceil(arr.length/maxPts);
+  return arr.filter((_,i)=>i%step===0);
+}
+function fmt(ts){ return ts.toLocaleString(undefined,{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function scanEvents(data, isBad, label, sevFn){
+  const events=[]; let cur=null;
+  data.forEach(d=>{
+    if(isBad(d)){ if(!cur) cur={start:d.ts,end:d.ts,points:[d],label}; else { cur.end=d.ts; cur.points.push(d); } }
+    else if(cur){ events.push(cur); cur=null; }
+  });
+  if(cur) events.push(cur);
+  return events.map(e=>({ ...e, durationMin: Math.round((e.end-e.start)/60000)+1, severity: sevFn(e.points) }));
+}
+
+// ---------- local canvas chart engine (no external library) ----------
+function setupCanvas(canvas, cssHeight){
+  const dpr = window.devicePixelRatio||1;
+  const cssW = canvas.clientWidth || canvas.parentElement.clientWidth;
+  canvas.width = cssW*dpr; canvas.height = cssHeight*dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return { ctx, width: cssW, height: cssHeight };
+}
+function drawLineChart(canvas, labels, datasets, opts={}){
+  const h = opts.height || 260;
+  const { ctx, width, height } = setupCanvas(canvas, h);
+  ctx.clearRect(0,0,width,height);
+  const padL=50,padR=14,padT= (opts.legend!==false && datasets.length>1)?22:12, padB=26;
+  const plotW=width-padL-padR, plotH=height-padT-padB;
+  let allVals=[]; datasets.forEach(ds=> ds.data.forEach(v=>{ if(v!==null && !isNaN(v)) allVals.push(v); }));
+  let minV=Math.min(...allVals), maxV=Math.max(...allVals);
+  if(!isFinite(minV)||!isFinite(maxV)){ minV=0; maxV=1; }
+  if(minV===maxV){ minV-=1; maxV+=1; }
+  const padV=(maxV-minV)*0.08; minV-=padV; maxV+=padV;
+  const n=labels.length;
+  const xOf = i => padL + (n>1 ? i*(plotW/(n-1)) : plotW/2);
+  const yOf = v => padT + plotH - ((v-minV)/(maxV-minV))*plotH;
+
+  ctx.strokeStyle='#1c2740'; ctx.fillStyle='#93a4c3'; ctx.font='10px sans-serif'; ctx.lineWidth=1;
+  for(let g=0; g<=4; g++){
+    const v = minV+(maxV-minV)*g/4, y=yOf(v);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(width-padR,y); ctx.stroke();
+    ctx.fillText(v.toFixed(1), 4, y+3);
+  }
+  const maxLabels = Math.max(1, Math.floor(plotW/70));
+  const labelStep = Math.max(1, Math.ceil(n/maxLabels));
+  ctx.textAlign='center';
+  for(let i=0;i<n;i+=labelStep) ctx.fillText(labels[i], xOf(i), height-8);
+  ctx.textAlign='left';
+
+  datasets.forEach(ds=>{
+    ctx.beginPath(); ctx.strokeStyle=ds.color; ctx.lineWidth=1.6;
+    if(ds.dashed) ctx.setLineDash([5,4]); else ctx.setLineDash([]);
+    let started=false;
+    ds.data.forEach((v,i)=>{
+      if(v===null||isNaN(v)){ started=false; return; }
+      const x=xOf(i), y=yOf(v);
+      if(!started){ ctx.moveTo(x,y); started=true; } else ctx.lineTo(x,y);
+    });
+    ctx.stroke(); ctx.setLineDash([]);
+  });
+
+  if(opts.legend!==false && datasets.length>1){
+    let lx=padL; ctx.font='11px sans-serif';
+    datasets.forEach(ds=>{
+      ctx.fillStyle=ds.color; ctx.fillRect(lx,2,10,10);
+      ctx.fillStyle='#93a4c3'; ctx.fillText(ds.label, lx+14, 11);
+      lx += ctx.measureText(ds.label).width + 34;
+    });
+  }
+}
+function drawGauge(canvas, score){
+  const { ctx, width, height } = setupCanvas(canvas, 160);
+  ctx.clearRect(0,0,width,height);
+  const cx=width/2, cy=height-6, r=Math.min(width/2-14, height-24);
+  const color = score>=75?'#3ddc84':score>=50?'#f5b942':'#ff5d6c';
+  ctx.lineWidth=16; ctx.lineCap='round';
+  ctx.strokeStyle='#1c2740';
+  ctx.beginPath(); ctx.arc(cx,cy,r,Math.PI,0); ctx.stroke();
+  ctx.strokeStyle=color;
+  ctx.beginPath(); ctx.arc(cx,cy,r,Math.PI, Math.PI+Math.PI*(score/100)); ctx.stroke();
+}
+
+function safeRun(label, fn){
+  try{ fn(); }
+  catch(err){
+    console.error(`[${label}] failed:`, err);
+    const el = document.getElementById('app');
+    const banner = document.createElement('div');
+    banner.className='errbanner';
+    banner.textContent = `⚠ "${label}" failed to render: ${err.message}. Check browser console (F12) for details.`;
+    el.prepend(banner);
+  }
+}
+
+function run(){
+  if(!RAW.length) return;
+  document.getElementById('app').innerHTML = buildLayout();
+  const interval = +document.getElementById('serviceInterval').value || 2000;
+  const nomV = +document.getElementById('nomVolts').value || 400;
+  const band = (+document.getElementById('voltsBand').value || 10)/100;
+  const critScore = +document.getElementById('critScore').value || 50;
+
+  let health=null;
+  safeRun('Health score', ()=>{ health = computeHealth(RAW, nomV, band); });
+
+  let trend=null;
+  safeRun('Degradation trend forecast', ()=>{ trend = computeHealthTrend(RAW, nomV, band, critScore); });
+
+  safeRun('KPI cards', ()=> renderKPIs(RAW, trend));
+
+  if(health) safeRun('Health gauge', ()=> renderGauge(health));
+
+  let maint=null;
+  safeRun('Service interval forecast', ()=>{ maint = predictMaintenance(RAW, interval); });
+
+  safeRun('Charts', ()=> renderCharts(RAW));
+
+  let events=[];
+  safeRun('Event detection', ()=>{ events = buildEvents(RAW, nomV, band); });
+
+  if(health && maint) safeRun('Insights', ()=> renderInsights(RAW, health, maint, events, trend));
+  safeRun('Alert table', ()=> renderAlertsTable(events));
+}
+
+function buildLayout(){
+  return `
+  <div class="kpi-grid" id="kpiRow"></div>
+  <div class="grid2">
+    <div class="panel">
+      <h2>AI Health Score <span>composite index, 0–100</span></h2>
+      <div class="gauge-wrap"><canvas id="gaugeChart"></canvas>
+        <div id="healthLabel">--</div><div id="healthStatus">--</div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>AI Insights &amp; Maintenance Forecast</h2>
+      <ul class="insights" id="insightsList"></ul>
+    </div>
+  </div>
+  <div class="charts-grid">
+    <div class="chart-box"><h3>KW — Actual vs Setpoint</h3><canvas id="kwChart"></canvas></div>
+    <div class="chart-box"><h3>Power Factor</h3><canvas id="pfChart"></canvas></div>
+    <div class="chart-box"><h3>Current (AMPS)</h3><canvas id="ampsChart"></canvas></div>
+    <div class="chart-box"><h3>Voltage</h3><canvas id="voltsChart"></canvas></div>
+    <div class="chart-box" style="grid-column:1/-1"><h3>Cumulative Energy (KWH)</h3><canvas id="kwhChart"></canvas></div>
+  </div>
+  <div class="panel" style="margin-top:16px">
+    <h2>Maintenance Alert Log <span>auto-detected events from thresholds</span></h2>
+    <table id="alertsTable"><thead><tr><th>Start</th><th>Duration</th><th>Type</th><th>Severity</th><th>Detail</th></tr></thead><tbody></tbody></table>
+  </div>`;
+}
+
+function renderKPIs(data, trend){
+  const last=data[data.length-1], first=data[0];
+  const avgPF=mean(data.map(d=>d.pf)), peakKW=Math.max(...data.map(d=>d.kw));
+  const totalKWH=last.kwh-first.kwh, avgVolts=mean(data.map(d=>d.volts));
+
+  let timeLeftVal = '—', timeLeftSub = 'stable / insufficient trend';
+  if(trend){
+    if(trend.daysToCritical !== null){
+      timeLeftVal = trend.daysToCritical.toFixed(1)+' days';
+      timeLeftSub = 'est. to critical health (extrapolated)';
+    } else if(trend.ratePerDay < 0){
+      timeLeftVal = 'Declining';
+      timeLeftSub = `${trend.ratePerDay.toFixed(2)} pts/day, too gradual to project`;
+    } else {
+      timeLeftVal = 'Stable';
+      timeLeftSub = 'no degradation trend detected';
+    }
+  }
+
+  const cards=[
+    ['Est. Time Left', timeLeftVal, timeLeftSub],
+    ['Avg Power Factor', avgPF.toFixed(3), avgPF<0.85?'Below target':'OK'],
+    ['Peak KW', peakKW.toFixed(1), ''],
+    ['Energy Consumed (window)', totalKWH.toFixed(1)+' kWh', data.length+' samples'],
+    ['Avg Voltage', avgVolts.toFixed(1)+' V', ''],
+    ['Data Span', ((last.ts-first.ts)/3600000).toFixed(1)+' hrs', fmt(first.ts)+' → '+fmt(last.ts)]
+  ];
+  document.getElementById('kpiRow').innerHTML = cards.map(c=>`
+    <div class="kpi-card"><div class="label">${c[0]}</div><div class="value">${c[1]}</div><div class="sub">${c[2]}</div></div>`).join('');
+}
+
+function computeHealth(data, nomV, band){
+  const recent = data.slice(-Math.min(2000, data.length));
+  const pfSlope = linreg(recent.map(d=>d.pf)).slope;
+  const ratio = recent.map(d=> d.kw>0.1 ? d.amps/d.kw : null).filter(v=>v!==null);
+  const ratioSlope = ratio.length>5 ? linreg(ratio).slope : 0;
+  const voltsStd = std(recent.map(d=>d.volts));
+  const pfAvg = mean(recent.map(d=>d.pf));
+  const voltsOutPct = recent.filter(d=>Math.abs(d.volts-nomV)>nomV*band).length/recent.length;
+  const kwsetDevPct = recent.filter(d=> d.kwset>0 && Math.abs(d.kw-d.kwset)/d.kwset > 0.15).length/recent.length;
+  let score=100;
+  if(pfAvg<0.85) score -= Math.min(25,(0.85-pfAvg)*150);
+  if(pfSlope<-0.0003) score -= 15;
+  if(ratioSlope>0) score -= 15;
+  if(voltsStd>nomV*0.03) score -= 8;
+  score -= Math.min(15, voltsOutPct*60);
+  score -= Math.min(15, kwsetDevPct*60);
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { score, pfSlope, ratioSlope, voltsStd, pfAvg, voltsOutPct, kwsetDevPct };
+}
+
+// ---------- NEW: trend-based degradation forecast ----------
+// Splits the data into an early window and a late window, scores each
+// with a simplified snapshot scorer, and extrapolates the rate of decline
+// forward to estimate days remaining until score crosses a critical threshold.
+// This is a linear extrapolation of recent trend, NOT a certified
+// remaining-useful-life (RUL) estimate — real degradation is often non-linear,
+// especially close to failure. Treat as an early-warning indicator only.
+function snapshotScore(windowData, nomV, band){
+  const pfAvg = mean(windowData.map(d=>d.pf));
+  const voltsStd = std(windowData.map(d=>d.volts));
+  const voltsOutPct = windowData.filter(d=>Math.abs(d.volts-nomV)>nomV*band).length/windowData.length;
+  const kwsetDevPct = windowData.filter(d=> d.kwset>0 && Math.abs(d.kw-d.kwset)/d.kwset > 0.15).length/windowData.length;
+  let score = 100;
+  if(pfAvg < 0.85) score -= Math.min(25,(0.85-pfAvg)*150);
+  if(voltsStd > nomV*0.03) score -= 8;
+  score -= Math.min(15, voltsOutPct*60);
+  score -= Math.min(15, kwsetDevPct*60);
+  return Math.max(0, Math.min(100, score));
+}
+function computeHealthTrend(data, nomV, band, criticalScore){
+  const minWindow = 20;
+  if(data.length < minWindow*2) return null;
+  const windowSize = Math.max(minWindow, Math.floor(data.length*0.3));
+  const earlyWin = data.slice(0, windowSize);
+  const lateWin = data.slice(-windowSize);
+  const scoreEarly = snapshotScore(earlyWin, nomV, band);
+  const scoreLate = snapshotScore(lateWin, nomV, band);
+  const midEarly = earlyWin[Math.floor(earlyWin.length/2)].ts;
+  const midLate = lateWin[Math.floor(lateWin.length/2)].ts;
+  const hoursBetween = (midLate - midEarly) / 3600000;
+  if(hoursBetween <= 0) return { scoreEarly, scoreLate, ratePerDay: 0, daysToCritical: null };
+  const ratePerDay = ((scoreLate - scoreEarly) / hoursBetween) * 24;
+  let daysToCritical = null;
+  if(ratePerDay < -0.01){
+    daysToCritical = scoreLate <= criticalScore ? 0 : (scoreLate - criticalScore) / (-ratePerDay);
+  }
+  return { scoreEarly, scoreLate, ratePerDay, daysToCritical };
+}
+
+function renderGauge(health){
+  drawGauge(document.getElementById('gaugeChart'), health.score);
+  document.getElementById('healthLabel').textContent = health.score;
+  document.getElementById('healthStatus').textContent =
+    health.score>=75?'Healthy':health.score>=50?'Needs Attention':'Critical — Inspect Soon';
+}
+
+function predictMaintenance(data, intervalHours){
+  const currentRH = data[data.length-1].rh;
+  const cycles = Math.floor(currentRH/intervalHours);
+  const nextServiceAt = (cycles+1)*intervalHours;
+  const hoursRemaining = nextServiceAt - currentRH;
+  const spanHrs = (data[data.length-1].ts - data[0].ts)/3600000;
+  const rhGain = data[data.length-1].rh - data[0].rh;
+  const dutyRate = spanHrs>0 ? rhGain/spanHrs : null;
+  const daysRemaining = dutyRate && dutyRate>0 ? (hoursRemaining/dutyRate)/24 : null;
+  return { currentRH, nextServiceAt, hoursRemaining, daysRemaining, dutyRate };
+}
+
+function buildEvents(data, nomV, band){
+  const pfEvents = scanEvents(data, d=>d.pf<0.85 && d.pf>0, 'Low Power Factor', pts=>mean(pts.map(p=>p.pf))<0.75?'high':'medium');
+  const voltEvents = scanEvents(data, d=>Math.abs(d.volts-nomV)>nomV*band, 'Voltage Out of Band', pts=>Math.max(...pts.map(p=>Math.abs(p.volts-nomV)))>nomV*band*2?'high':'medium');
+  const kwsetEvents = scanEvents(data, d=>d.kwset>0 && Math.abs(d.kw-d.kwset)/d.kwset>0.15, 'KW vs Setpoint Deviation', ()=>'medium');
+  const ampsArr = data.map(d=>d.amps);
+  const aMean=mean(ampsArr), aStd=std(ampsArr)||1;
+  const ampsEvents = scanEvents(data, d=>Math.abs(d.amps-aMean)/aStd>3, 'Current Spike', ()=>'high');
+  return [...pfEvents, ...voltEvents, ...kwsetEvents, ...ampsEvents].sort((a,b)=>b.start-a.start);
+}
+
+function renderInsights(data, health, maint, events, trend){
+  const items=[];
+  items.push([health.score>=75?'good':health.score>=50?'warn':'bad',
+    `Composite health score: <b>${health.score}/100</b> — ${health.score>=75?'operating within normal parameters.':health.score>=50?'some degradation indicators present.':'multiple degradation indicators — schedule inspection.'}`]);
+
+  if(health.pfSlope<-0.0003) items.push(['warn', `Power factor is trending <b>downward</b> — check capacitor bank health or motor winding condition.`]);
+  if(health.ratioSlope>0) items.push(['bad', `AMPS/KW ratio is <b>rising</b> — typically indicates condenser fouling, refrigerant loss, or bearing wear.`]);
+  if(health.pfAvg<0.85) items.push(['warn', `Average PF (${health.pfAvg.toFixed(3)}) is below the 0.85 efficiency target.`]);
+  if(health.voltsOutPct>0.02) items.push(['warn', `Voltage fell outside band on ${(health.voltsOutPct*100).toFixed(1)}% of samples — check supply stability.`]);
+  if(health.kwsetDevPct>0.05) items.push(['warn', `KW deviated >15% from KWSET on ${(health.kwsetDevPct*100).toFixed(1)}% of samples.`]);
+
+  if(maint.daysRemaining!==null){
+    items.push([maint.daysRemaining<7?'bad':maint.daysRemaining<30?'warn':'good',
+      `Next scheduled service interval will be reached in approximately <b>${maint.daysRemaining.toFixed(1)} days</b> at the current duty cycle.`]);
+  } else {
+    items.push(['good', `Not enough duty-cycle signal to project time-to-next-scheduled-service reliably.`]);
+  }
+
+  if(trend){
+    if(trend.daysToCritical !== null){
+      items.push([trend.daysToCritical<14?'bad':trend.daysToCritical<45?'warn':'good',
+        `<b>Estimated time left: ${trend.daysToCritical.toFixed(1)} days</b> before health score is projected to reach critical (≤${document.getElementById('critScore').value}), based on the current degradation trend.`]);
+      items.push(['note', `This is a linear extrapolation of recent trend data, not a certified remaining-useful-life estimate. Real equipment degradation is often non-linear, especially close to failure — treat this as an early-warning signal, not a scheduling guarantee.`]);
+    } else if(trend.ratePerDay < 0){
+      items.push(['good', `Health score is declining slowly (${trend.ratePerDay.toFixed(2)} pts/day) — too gradual over this window to project a reliable time-to-critical yet.`]);
+    } else {
+      items.push(['good', `Health score is stable or improving over the analyzed window — no degradation trend to extrapolate.`]);
+    }
+  }
+
+  const highSev = events.filter(e=>e.severity==='high').length;
+  if(highSev>0) items.push(['bad', `${highSev} high-severity event(s) detected — see table below.`]);
+  else if(events.length>0) items.push(['warn', `${events.length} lower-severity event(s) detected — monitor trend.`]);
+  else items.push(['good', `No threshold-crossing events detected in this window.`]);
+
+  document.getElementById('insightsList').innerHTML = items.map(([cls,txt])=>`<li class="${cls}">${txt}</li>`).join('');
+}
+
+function renderAlertsTable(events){
+  const tbody=document.querySelector('#alertsTable tbody');
+  if(!events.length){ tbody.innerHTML=`<tr><td colspan="5" class="empty">No events detected.</td></tr>`; return; }
+  tbody.innerHTML = events.slice(0,100).map(e=>`
+    <tr><td>${fmt(e.start)}</td><td>${e.durationMin} min</td><td>${e.label}</td>
+    <td class="sev-${e.severity==='high'?'high':e.severity==='medium'?'med':'low'}">${e.severity.toUpperCase()}</td>
+    <td>${e.points.length} sample(s) affected</td></tr>`).join('');
+}
+
+function renderCharts(data){
+  const ds = downsample(data);
+  const labels = ds.map(d=>fmt(d.ts));
+  drawLineChart(document.getElementById('kwChart'), labels, [
+    {label:'KW Actual', data: ds.map(d=>d.kw), color:'#5b8def'},
+    {label:'KW Setpoint', data: ds.map(d=>d.kwset), color:'#f5b942', dashed:true}
+  ]);
+  drawLineChart(document.getElementById('pfChart'), labels, [{label:'PF', data: ds.map(d=>d.pf), color:'#4fd1c5'}], {legend:false});
+  drawLineChart(document.getElementById('ampsChart'), labels, [{label:'AMPS', data: ds.map(d=>d.amps), color:'#ff5d6c'}], {legend:false});
+  drawLineChart(document.getElementById('voltsChart'), labels, [{label:'VOLTS', data: ds.map(d=>d.volts), color:'#3ddc84'}], {legend:false});
+  drawLineChart(document.getElementById('kwhChart'), labels, [{label:'KWH', data: ds.map(d=>d.kwh), color:'#5b8def'}], {legend:false});
+}
+</script>
+</body>
+</html>
