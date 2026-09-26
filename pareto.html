@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loss Cause Pareto Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.32.0/plotly.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Arial, Helvetica, sans-serif; background-color:#ffffff; color:#222; }
+  .tabs { display:flex; border-bottom:2px solid #e0e0e0; background:#fff; position:sticky; top:0; z-index:10; }
+  .tab-btn { flex:1; padding:16px; text-align:center; font-size:16px; font-weight:bold; cursor:pointer;
+             background:#f5f5f5; border:none; border-bottom:4px solid transparent; color:#444; }
+  .tab-btn.active { background:#fff; border-bottom:4px solid #d62728; color:#d62728; }
+  .tab-content { display:none; padding:24px; max-width:1100px; margin:0 auto; }
+  .tab-content.active { display:block; }
+  h2 { color:#d62728; }
+  .card { background:#fafafa; border:1px solid #e0e0e0; border-radius:10px; padding:20px; margin-bottom:20px; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; font-size:14px; }
+  th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+  th { background-color:#d62728; color:white; }
+  input[type="file"] { margin:10px 0; }
+  button.action-btn { background-color:#d62728; color:white; border:none; padding:10px 20px; border-radius:6px;
+                       font-size:15px; cursor:pointer; margin-top:10px; }
+  button.action-btn:hover { background-color:#a91f1f; }
+  .kpi-row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+  .kpi-box { flex:1; min-width:160px; padding:20px; border-radius:10px; text-align:center; color:white; font-weight:bold; }
+  .kpi-box .val { font-size:28px; display:block; margin-top:6px; }
+  .green{background-color:#2ca02c;} .orange{background-color:#ff7f0e;} .red{background-color:#d62728;} .blue{background-color:#1f77b4;}
+  .alert-box { background-color:#fff3f3; border-left:6px solid #d62728; padding:14px 18px; border-radius:6px; margin-top:16px; font-size:15px; }
+  .insight-p { padding:10px 0; border-bottom:1px solid #eee; font-size:15px; }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="showTab('import', event)">1. Data Import</button>
+  <button class="tab-btn" onclick="showTab('dashboard', event)">2. Dashboard</button>
+  <button class="tab-btn" onclick="showTab('export', event)">3. Export</button>
+  <button class="tab-btn" onclick="showTab('insights', event)">4. AI Insights</button>
+</div>
+
+<div id="import" class="tab-content active">
+  <h2>Data Import — Yield Loss Causes (Pharma Batch)</h2>
+  <div class="card">
+    <p>Upload a CSV with columns: <b>Cause, Loss</b> (Loss in mass units). If no file is uploaded, sample data is used.</p>
+    <input type="file" id="fileInput" accept=".csv" onchange="handleFile(event)">
+    <p id="fileStatus" style="color:#2ca02c; font-weight:bold;"></p>
+    <table id="previewTable">
+      <thead><tr><th>Cause</th><th>Loss (units)</th></tr></thead>
+      <tbody id="previewBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="dashboard" class="tab-content">
+  <h2>Shop Floor Loss Cause Dashboard</h2>
+  <div class="kpi-row" id="kpiRow"></div>
+  <div class="card">
+    <div id="paretoChart"></div>
+    <div class="alert-box" id="topCauseAlert"></div>
+  </div>
+</div>
+
+<div id="export" class="tab-content">
+  <h2>Export Data</h2>
+  <div class="card">
+    <p>Download the current loss cause data as an Excel file.</p>
+    <button class="action-btn" onclick="exportExcel()">Download Excel (.xlsx)</button>
+  </div>
+</div>
+
+<div id="insights" class="tab-content">
+  <h2>AI Insights</h2>
+  <div class="card" id="insightsCard"><p>Visit the Dashboard tab first, then return here.</p></div>
+</div>
+
+<script>
+let lossData = [
+  { Cause: "Purge (off-spec purity)", Loss: 8 },
+  { Cause: "Byproduct formation", Loss: 7 },
+  { Cause: "Unreacted feed (non-recycled fraction)", Loss: 4 },
+  { Cause: "Filter cake retention", Loss: 2 },
+  { Cause: "Sampling/QC losses", Loss: 1 },
+  { Cause: "Equipment leaks", Loss: 0.7 },
+  { Cause: "Transfer line holdup", Loss: 0.3 },
+];
+
+function showTab(id, evt) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  evt.currentTarget.classList.add('active');
+  if (id === 'dashboard') renderDashboard();
+  if (id === 'insights') renderInsights();
+}
+
+function renderPreview() {
+  const body = document.getElementById('previewBody');
+  body.innerHTML = '';
+  lossData.forEach(row => { body.innerHTML += `<tr><td>${row.Cause}</td><td>${row.Loss}</td></tr>`; });
+}
+renderPreview();
+
+function handleFile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split(/\r?\n/).filter(l => l.trim() !== '');
+    const rows = lines.slice(1).map(line => {
+      const cols = line.split(',');
+      return { Cause: cols[0]?.trim(), Loss: parseFloat(cols[1]) };
+    }).filter(r => r.Cause && !isNaN(r.Loss));
+    lossData = rows;
+    document.getElementById('fileStatus').innerText = `Loaded ${rows.length} rows from ${file.name}`;
+    renderPreview();
+  };
+  reader.readAsText(file);
+}
+
+function renderDashboard() {
+  const sorted = [...lossData].sort((a,b) => b.Loss - a.Loss);
+  const total = sorted.reduce((a,b) => a + b.Loss, 0);
+  let cum = 0;
+  const cumPct = sorted.map(row => { cum += row.Loss; return (cum/total)*100; });
+
+  const trace1 = { x: sorted.map(r=>r.Cause), y: sorted.map(r=>r.Loss), type:'bar', name:'Loss (units)', marker:{color:'#d62728'} };
+  const trace2 = { x: sorted.map(r=>r.Cause), y: cumPct, type:'scatter', mode:'lines+markers', name:'Cumulative %', yaxis:'y2', line:{color:'black', dash:'dash'} };
+  const layout = {
+    title: 'Pareto Chart: Yield Loss Causes',
+    yaxis: { title: 'Loss (mass units)' },
+    yaxis2: { title: 'Cumulative %', overlaying:'y', side:'right', range:[0,110] },
+    xaxis: { title: 'Loss Cause', tickangle:-30 },
+    legend: { x:0.7, y:1.2, orientation:'h' },
+    height: 500
+  };
+  Plotly.newPlot('paretoChart', [trace1, trace2], layout);
+
+  const topCause = sorted[0];
+  const top2Pct = ((sorted[0].Loss + (sorted[1]?.Loss||0)) / total * 100).toFixed(1);
+  document.getElementById('kpiRow').innerHTML = `
+    <div class="kpi-box red">Total Loss<span class="val">${total.toFixed(1)}</span></div>
+    <div class="kpi-box orange">Top Cause<span class="val" style="font-size:16px;">${topCause.Cause}</span></div>
+    <div class="kpi-box blue">Top 2 Causes = <span class="val">${top2Pct}%</span> of loss</div>
+    <div class="kpi-box green">Causes Tracked<span class="val">${sorted.length}</span></div>`;
+  document.getElementById('topCauseAlert').innerHTML =
+    `<b>Focus area:</b> "${topCause.Cause}" is the single largest contributor to yield loss (${topCause.Loss} units). Addressing this first gives the biggest improvement.`;
+}
+
+function renderInsights() {
+  const sorted = [...lossData].sort((a,b) => b.Loss - a.Loss);
+  const total = sorted.reduce((a,b)=>a+b.Loss,0);
+  const top = sorted[0];
+  const top2Pct = ((sorted[0].Loss + (sorted[1]?.Loss||0)) / total * 100);
+
+  const insights = [];
+  insights.push(`🔎 "${top.Cause}" alone accounts for ${(top.Loss/total*100).toFixed(1)}% of total tracked loss (${top.Loss} of ${total.toFixed(1)} units).`);
+  insights.push(top2Pct >= 70
+    ? `📊 The top 2 causes explain ${top2Pct.toFixed(1)}% of all loss — a classic 80/20 pattern. Fixing just these two will have outsized impact.`
+    : `📊 Losses are fairly spread across causes (top 2 = ${top2Pct.toFixed(1)}%) — a broader improvement program may be needed rather than one fix.`);
+  insights.push(`📌 Recommended action: assign root-cause investigation to "${top.Cause}" this week; it offers the fastest path to yield improvement.`);
+  document.getElementById('insightsCard').innerHTML = insights.map(i => `<p class="insight-p">${i}</p>`).join('');
+}
+
+function exportExcel() {
+  const ws = XLSX.utils.json_to_sheet(lossData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "LossCauses");
+  XLSX.writeFile(wb, "loss_causes_export.xlsx");
+}
+</script>
+</body>
+</html>
