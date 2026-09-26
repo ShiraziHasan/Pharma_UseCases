@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chiller Energy Anomaly Monitor</title>
+<style>
+:root{
+  --bg:#f4f6fb; --panel:#ffffff; --panel2:#eef1f8; --border:#dbe1ee;
+  --text:#131b2e; --muted:#5b6478; --accent:#0f9c90; --good:#1a9e5c;
+  --warn:#b8790a; --bad:#d43f4f; --blue:#3b6fd4;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Segoe UI',Roboto,Arial,sans-serif;}
+header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;}
+header h1{margin:0;font-size:20px;font-weight:600;}
+header p{margin:2px 0 0;color:var(--muted);font-size:13px;}
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.controls label{font-size:12px;color:var(--muted);margin-right:4px;}
+input[type=file], input[type=number], input[type=range]{
+  background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;font-size:13px;
+}
+button{background:var(--accent);border:none;color:#2a1204;font-weight:600;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;}
+.container{padding:24px 28px;max-width:1500px;margin:0 auto;}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px;}
+.kpi-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
+.kpi-card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
+.kpi-card .value{font-size:24px;font-weight:700;margin-top:6px;}
+.kpi-card .sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px;}
+.panel h2{margin:0 0 12px;font-size:15px;}
+.panel h2 span{color:var(--muted);font-weight:400;font-size:12px;}
+.insights{list-style:none;padding:0;margin:0;}
+.insights li{padding:9px 10px;border-radius:6px;margin-bottom:8px;font-size:13px;line-height:1.4;border-left:3px solid var(--blue);background:var(--panel2);}
+.insights li.warn{border-left-color:var(--warn);}
+.insights li.bad{border-left-color:var(--bad);}
+.insights li.good{border-left-color:var(--good);}
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px;}
+.chart-box{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;}
+.chart-box h3{margin:0 0 10px;font-size:13px;color:var(--muted);font-weight:600;}
+.chart-box canvas{width:100%;height:260px;display:block;}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
+.sev-high{color:var(--bad);font-weight:700;}
+.sev-med{color:var(--warn);font-weight:700;}
+.sev-low{color:var(--blue);font-weight:700;}
+.empty{color:var(--muted);text-align:center;padding:40px;font-size:14px;}
+.errbanner{background:#3a1620;border:1px solid var(--bad);color:#ffb3ba;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Chiller Energy Anomaly Monitor</h1>
+    <p>Fully offline — no external libraries. Rolling z-score + IQR + hour-of-day baseline detection.</p>
+  </div>
+  <div class="controls">
+    <div><label>CSV file</label><br><input type="file" id="fileInput" accept=".csv"></div>
+    <div><label>Sensitivity (z-score)</label><br><input type="range" id="zThresh" min="2" max="5" step="0.5" value="3"><span id="zVal">3.0</span></div>
+    <div><label>Rolling window (pts)</label><br><input type="number" id="winSize" value="60" style="width:90px"></div>
+    <button id="reprocessBtn">Re-run analysis</button>
+  </div>
+</header>
+
+<div class="container" id="app">
+  <div class="empty">Upload a CSV to begin.</div>
+</div>
+
+<script>
+let RAW = [];
+
+function parseCSV(text){
+  const rows=[]; let i=0, field='', row=[], inQuotes=false;
+  const pushField=()=>{ row.push(field); field=''; };
+  const pushRow=()=>{ pushField(); rows.push(row); row=[]; };
+  while(i<text.length){
+    const c=text[i];
+    if(inQuotes){
+      if(c==='"'){ if(text[i+1]==='"'){field+='"'; i+=2; continue;} inQuotes=false; i++; continue; }
+      field+=c; i++; continue;
+    } else {
+      if(c==='"'){ inQuotes=true; i++; continue; }
+      if(c===','){ pushField(); i++; continue; }
+      if(c==='\r'){ i++; continue; }
+      if(c==='\n'){ pushRow(); i++; continue; }
+      field+=c; i++; continue;
+    }
+  }
+  if(field.length || row.length) pushRow();
+  const filtered = rows.filter(r=> r.some(v=>v.trim()!==''));
+  if(!filtered.length) return [];
+  const headers = filtered[0].map(h=>h.trim());
+  return filtered.slice(1).map(r=>{
+    const obj={}; headers.forEach((h,idx)=> obj[h]= r[idx]!==undefined ? r[idx].trim() : '');
+    return obj;
+  });
+}
+
+document.getElementById('fileInput').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = evt=>{
+    try{
+      const parsed = parseCSV(evt.target.result);
+      RAW = cleanRows(parsed);
+      if(RAW.length===0){
+        document.getElementById('app').innerHTML =
+          `<div class="empty">Parsed ${parsed.length} raw row(s) but 0 were usable after cleaning.<br>
+           Check your CSV has a <b>timestamp</b> column (DD/MM/YYYY HH:mm) and a <b>KW</b> column.
+           <br><span style="font-size:11px">Sample: ${JSON.stringify(parsed[0]||{})}</span></div>`;
+        console.warn('0 valid rows. Sample raw row:', parsed[0]);
+        return;
+      }
+      run();
+    } catch(err){
+      document.getElementById('app').innerHTML = `<div class="empty">CSV read error: ${err.message}</div>`;
+      console.error(err);
+    }
+  };
+  reader.onerror = ()=>{ document.getElementById('app').innerHTML = `<div class="empty">Could not read file.</div>`; };
+  reader.readAsText(file);
+});
+document.getElementById('reprocessBtn').addEventListener('click', ()=>{ if(RAW.length) run(); });
+document.getElementById('zThresh').addEventListener('input', e=>{ document.getElementById('zVal').textContent=(+e.target.value).toFixed(1); });
+
+function parseTs(s){
+  if(!s) return new Date(NaN);
+  const parts=String(s).trim().split(' ');
+  const datePart=parts[0], timePart=parts[1]||'0:0';
+  const dp=datePart.split('/').map(Number);
+  if(dp.length<3 || dp.some(isNaN)) return new Date(NaN);
+  const [d,m,y]=dp;
+  const tp=timePart.split(':').map(Number);
+  return new Date(y, m-1, d, tp[0]||0, tp[1]||0);
+}
+
+function cleanRows(rows){
+  return rows.filter(r=>r.timestamp && r.KW!==undefined && r.KW!=='')
+    .map(r=>({
+      ts: parseTs(r.timestamp),
+      amps:+r.AMPS, kvah:+r.KVAH, volts:+r.VOLTS, pf:+r.PF,
+      rh:+r.RUNNING_HOURS, kw:+r.KW, kwh:+r.KWH, kwset:+r.KWSET,
+      desc:r.DESCRIPTION||'', asset:r.AssetName||r.AssetThingName||''
+    }))
+    .filter(r=>!isNaN(r.ts.getTime()))
+    .sort((a,b)=>a.ts-b.ts);
+}
+
+const mean = a => a.reduce((s,v)=>s+v,0)/(a.length||1);
+const std = a => { const m=mean(a); return Math.sqrt(mean(a.map(v=>(v-m)**2))); };
+function quantile(sorted,q){
+  const pos=(sorted.length-1)*q, base=Math.floor(pos), rest=pos-base;
+  return sorted[base+1]!==undefined ? sorted[base]+rest*(sorted[base+1]-sorted[base]) : sorted[base];
+}
+function downsample(arr,maxPts=400){
+  if(arr.length<=maxPts) return arr;
+  const step=Math.ceil(arr.length/maxPts);
+  return arr.filter((_,i)=>i%step===0);
+}
+function fmt(ts){ return ts.toLocaleString(undefined,{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+
+// ---------- local canvas chart engine ----------
+function setupCanvas(canvas, cssHeight){
+  const dpr=window.devicePixelRatio||1;
+  const cssW = canvas.clientWidth || canvas.parentElement.clientWidth;
+  canvas.width=cssW*dpr; canvas.height=cssHeight*dpr;
+  const ctx=canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return { ctx, width:cssW, height:cssHeight };
+}
+function drawLineChart(canvas, labels, datasets, opts={}){
+  const h=opts.height||260;
+  const { ctx, width, height } = setupCanvas(canvas, h);
+  ctx.clearRect(0,0,width,height);
+  const padL=50,padR=14,padT=(opts.legend!==false && datasets.length>1)?22:12,padB=26;
+  const plotW=width-padL-padR, plotH=height-padT-padB;
+  let allVals=[]; datasets.forEach(ds=> ds.data.forEach(v=>{ if(v!==null && !isNaN(v)) allVals.push(v); }));
+  let minV=Math.min(...allVals), maxV=Math.max(...allVals);
+  if(!isFinite(minV)||!isFinite(maxV)){minV=0;maxV=1;}
+  if(minV===maxV){minV-=1;maxV+=1;}
+  const padV=(maxV-minV)*0.08; minV-=padV; maxV+=padV;
+  const n=labels.length;
+  const xOf = i => padL + (n>1 ? i*(plotW/(n-1)) : plotW/2);
+  const yOf = v => padT + plotH - ((v-minV)/(maxV-minV))*plotH;
+
+  ctx.strokeStyle='#1c2740'; ctx.fillStyle='#93a4c3'; ctx.font='10px sans-serif'; ctx.lineWidth=1;
+  for(let g=0; g<=4; g++){
+    const v=minV+(maxV-minV)*g/4, y=yOf(v);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(width-padR,y); ctx.stroke();
+    ctx.fillText(v.toFixed(1), 4, y+3);
+  }
+  const maxLabels=Math.max(1,Math.floor(plotW/70));
+  const labelStep=Math.max(1, Math.ceil(n/maxLabels));
+  ctx.textAlign='center';
+  for(let i=0;i<n;i+=labelStep) ctx.fillText(labels[i], xOf(i), height-8);
+  ctx.textAlign='left';
+
+  datasets.forEach(ds=>{
+    ctx.beginPath(); ctx.strokeStyle=ds.color; ctx.lineWidth=1.6;
+    if(ds.dashed) ctx.setLineDash([5,4]); else ctx.setLineDash([]);
+    let started=false;
+    ds.data.forEach((v,i)=>{
+      if(v===null||isNaN(v)){ started=false; return; }
+      const x=xOf(i), y=yOf(v);
+      if(!started){ ctx.moveTo(x,y); started=true; } else ctx.lineTo(x,y);
+    });
+    ctx.stroke(); ctx.setLineDash([]);
+    if(ds.pointFlags){
+      ctx.fillStyle = ds.pointColor || '#ff5d6c';
+      ds.data.forEach((v,i)=>{
+        if(ds.pointFlags[i] && v!==null && !isNaN(v)){
+          ctx.beginPath(); ctx.arc(xOf(i), yOf(v), 3.5, 0, Math.PI*2); ctx.fill();
+        }
+      });
+    }
+  });
+}
+function drawBarChart(canvas, labels, data, color, opts={}){
+  const h=opts.height||260;
+  const { ctx, width, height } = setupCanvas(canvas, h);
+  ctx.clearRect(0,0,width,height);
+  const padL=50,padR=14,padT=12,padB=26;
+  const plotW=width-padL-padR, plotH=height-padT-padB;
+  const maxV=Math.max(...data, 0.001);
+  const n=data.length;
+  ctx.strokeStyle='#1c2740'; ctx.fillStyle='#93a4c3'; ctx.font='10px sans-serif';
+  for(let g=0; g<=4; g++){
+    const v=maxV*g/4, y=padT+plotH-(v/maxV)*plotH;
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(width-padR,y); ctx.stroke();
+    ctx.fillText(v.toFixed(0), 4, y+3);
+  }
+  const bw=(plotW/n)*0.7, gap=(plotW/n)*0.3;
+  data.forEach((v,i)=>{
+    const x=padL+i*(plotW/n)+gap/2;
+    const barH=(v/maxV)*plotH, y=padT+plotH-barH;
+    ctx.fillStyle=color; ctx.fillRect(x,y,bw,barH);
+  });
+  ctx.fillStyle='#93a4c3'; ctx.textAlign='center';
+  const maxLabels=Math.max(1,Math.floor(plotW/40));
+  const labelStep=Math.max(1, Math.ceil(n/maxLabels));
+  for(let i=0;i<n;i+=labelStep) ctx.fillText(labels[i], padL+i*(plotW/n)+(plotW/n)/2, height-8);
+  ctx.textAlign='left';
+}
+
+function safeRun(label, fn){
+  try{ fn(); }
+  catch(err){
+    console.error(`[${label}] failed:`, err);
+    const el=document.getElementById('app');
+    const banner=document.createElement('div');
+    banner.className='errbanner';
+    banner.textContent = `⚠ "${label}" failed to render: ${err.message}. Check browser console (F12) for details.`;
+    el.prepend(banner);
+  }
+}
+
+function run(){
+  if(!RAW.length) return;
+  document.getElementById('app').innerHTML = buildLayout();
+  const z = +document.getElementById('zThresh').value;
+  const win = +document.getElementById('winSize').value || 60;
+
+  let anomalies=[];
+  safeRun('Anomaly detection', ()=>{ anomalies = detectAnomalies(RAW, win, z); });
+  safeRun('KPI cards', ()=> renderKPIs(RAW, anomalies));
+  safeRun('Charts', ()=> renderCharts(RAW, anomalies));
+  safeRun('Hourly baseline chart', ()=> renderHourly(RAW));
+  safeRun('Insights', ()=> renderInsights(RAW, anomalies));
+  safeRun('Anomaly table', ()=> renderAnomalyTable(anomalies));
+}
+
+function buildLayout(){
+  return `
+  <div class="kpi-grid" id="kpiRow"></div>
+  <div class="panel">
+    <h2>AI Insights <span>pattern-level summary of detected anomalies</span></h2>
+    <ul class="insights" id="insightsList"></ul>
+  </div>
+  <div class="charts-grid">
+    <div class="chart-box"><h3>KW (anomalies highlighted)</h3><canvas id="kwChart"></canvas></div>
+    <div class="chart-box"><h3>AMPS (anomalies highlighted)</h3><canvas id="ampsChart"></canvas></div>
+    <div class="chart-box"><h3>KVAH (anomalies highlighted)</h3><canvas id="kvahChart"></canvas></div>
+    <div class="chart-box"><h3>Power Factor (anomalies highlighted)</h3><canvas id="pfChart"></canvas></div>
+    <div class="chart-box" style="grid-column:1/-1"><h3>Average KW by Hour of Day (baseline load pattern)</h3><canvas id="hourlyChart"></canvas></div>
+  </div>
+  <div class="panel">
+    <h2>Anomaly Log <span>rolling z-score + IQR ensemble, most recent first</span></h2>
+    <table id="anomalyTable"><thead><tr><th>Timestamp</th><th>Parameter</th><th>Value</th><th>Z-score</th><th>Method</th><th>Severity</th></tr></thead><tbody></tbody></table>
+  </div>`;
+}
+
+function renderKPIs(data, anomalies){
+  const last=data[data.length-1], first=data[0];
+  const totalKWH=last.kwh-first.kwh;
+  const avgPF=mean(data.map(d=>d.pf));
+  const peakKW=Math.max(...data.map(d=>d.kw));
+  const peakAmps=Math.max(...data.map(d=>d.amps));
+  const cards=[
+    ['Total KWH (window)', totalKWH.toFixed(1), data.length+' samples'],
+    ['Avg Power Factor', avgPF.toFixed(3), ''],
+    ['Peak KW', peakKW.toFixed(1), ''],
+    ['Peak AMPS', peakAmps.toFixed(1), ''],
+    ['Anomalies Detected', anomalies.length, anomalies.filter(a=>a.severity==='high').length+' high severity']
+  ];
+  document.getElementById('kpiRow').innerHTML = cards.map(c=>`
+    <div class="kpi-card"><div class="label">${c[0]}</div><div class="value">${c[1]}</div><div class="sub">${c[2]}</div></div>`).join('');
+}
+
+function rollingZ(values, win){
+  const z=new Array(values.length).fill(null);
+  for(let i=win;i<values.length;i++){
+    const w=values.slice(i-win,i);
+    const m=mean(w), s=std(w)||1e-6;
+    z[i]=(values[i]-m)/s;
+  }
+  return z;
+}
+function iqrFlags(values){
+  const sorted=[...values].sort((a,b)=>a-b);
+  const q1=quantile(sorted,0.25), q3=quantile(sorted,0.75), iqr=q3-q1;
+  const lo=q1-1.5*iqr, hi=q3+1.5*iqr;
+  return values.map(v=> v<lo || v>hi);
+}
+function detectAnomalies(data, win, zThresh){
+  const params=['kw','amps','kvah','pf','volts'];
+  const arrs={}; params.forEach(p=> arrs[p]=data.map(d=>d[p]));
+  const zScores={}; params.forEach(p=> zScores[p]=rollingZ(arrs[p], win));
+  const iqrFlagsMap={}; params.forEach(p=> iqrFlagsMap[p]=iqrFlags(arrs[p]));
+  const byHour={};
+  data.forEach(d=>{ const h=d.ts.getHours(); (byHour[h]=byHour[h]||[]).push(d.kw); });
+  const hourStats={};
+  Object.keys(byHour).forEach(h=> hourStats[h]={ m:mean(byHour[h]), s: std(byHour[h])||1e-6 });
+
+  const anomalies=[];
+  data.forEach((d,i)=>{
+    params.forEach(p=>{
+      const zv=zScores[p][i];
+      const iqrFlag=iqrFlagsMap[p][i];
+      const isZAnomaly = zv!==null && Math.abs(zv)>=zThresh;
+      if(isZAnomaly || iqrFlag){
+        const method = isZAnomaly && iqrFlag ? 'Z-score + IQR' : isZAnomaly ? 'Rolling Z-score' : 'IQR outlier';
+        let severity='low';
+        if(isZAnomaly && iqrFlag) severity='high';
+        else if(zv!==null && Math.abs(zv)>=zThresh+1) severity='high';
+        else if(isZAnomaly || iqrFlag) severity='medium';
+        if(p==='pf' && d.pf>0 && d.pf<0.75) severity='high';
+        anomalies.push({ ts:d.ts, param:p.toUpperCase(), value:d[p], z:zv, method, severity });
+      }
+    });
+    const h=d.ts.getHours(); const hs=hourStats[h];
+    if(hs){
+      const hz=(d.kw-hs.m)/hs.s;
+      if(Math.abs(hz)>=zThresh){
+        anomalies.push({ ts:d.ts, param:'KW (hour-of-day)', value:d.kw, z:hz, method:'Contextual baseline', severity: Math.abs(hz)>=zThresh+1?'high':'medium' });
+      }
+    }
+  });
+  return anomalies.sort((a,b)=>b.ts-a.ts);
+}
+
+function renderInsights(data, anomalies){
+  const items=[];
+  const byParam={};
+  anomalies.forEach(a=>{ byParam[a.param]=(byParam[a.param]||0)+1; });
+  const total=anomalies.length;
+  const highCount=anomalies.filter(a=>a.severity==='high').length;
+  items.push([highCount>0?'bad':total>0?'warn':'good',
+    `Detected <b>${total}</b> anomalous readings (${highCount} high severity) across ${data.length} samples (${(100*total/data.length).toFixed(2)}%).`]);
+  const topParam=Object.entries(byParam).sort((a,b)=>b[1]-a[1])[0];
+  if(topParam) items.push(['warn', `Most anomalies were on <b>${topParam[0]}</b> (${topParam[1]} events).`]);
+  const pfLow=anomalies.filter(a=>a.param==='PF' && a.value<0.75).length;
+  if(pfLow>0) items.push(['bad', `${pfLow} reading(s) show power factor below 0.75 — potential capacitor bank or motor issue.`]);
+  const ampSpikes=anomalies.filter(a=>a.param==='AMPS').length;
+  if(ampSpikes>0) items.push(['warn', `${ampSpikes} current spike event(s) detected — correlate with plant logs.`]);
+  const contextual=anomalies.filter(a=>a.param.includes('hour-of-day')).length;
+  if(contextual>0) items.push(['warn', `${contextual} reading(s) deviate from the typical load pattern for their time of day.`]);
+  if(total===0) items.push(['good', `No statistically significant anomalies found at the current sensitivity.`]);
+  document.getElementById('insightsList').innerHTML = items.map(([cls,txt])=>`<li class="${cls}">${txt}</li>`).join('');
+}
+
+function renderAnomalyTable(anomalies){
+  const tbody=document.querySelector('#anomalyTable tbody');
+  if(!anomalies.length){ tbody.innerHTML=`<tr><td colspan="6" class="empty">No anomalies detected.</td></tr>`; return; }
+  tbody.innerHTML = anomalies.slice(0,200).map(a=>`
+    <tr><td>${fmt(a.ts)}</td><td>${a.param}</td>
+    <td>${typeof a.value==='number'?a.value.toFixed(2):a.value}</td>
+    <td>${a.z!==null && a.z!==undefined?a.z.toFixed(2):'—'}</td>
+    <td>${a.method}</td>
+    <td class="sev-${a.severity==='high'?'high':a.severity==='medium'?'med':'low'}">${a.severity.toUpperCase()}</td></tr>`).join('');
+}
+
+function renderCharts(data, anomalies){
+  const ds = downsample(data, 500);
+  const labels = ds.map(d=>fmt(d.ts));
+  const anomalySet={};
+  anomalies.forEach(a=>{ anomalySet[a.param.split(' ')[0]+'|'+a.ts.getTime()]=true; });
+  const flagsFor = key => ds.map(d=> !!anomalySet[key+'|'+d.ts.getTime()]);
+
+  drawLineChart(document.getElementById('kwChart'), labels, [{label:'KW', data: ds.map(d=>d.kw), color:'#5b8def', pointFlags: flagsFor('KW'), pointColor:'#ff5d6c'}], {legend:false});
+  drawLineChart(document.getElementById('ampsChart'), labels, [{label:'AMPS', data: ds.map(d=>d.amps), color:'#ff5d6c', pointFlags: flagsFor('AMPS'), pointColor:'#ffe066'}], {legend:false});
+  drawLineChart(document.getElementById('kvahChart'), labels, [{label:'KVAH', data: ds.map(d=>d.kvah), color:'#f5b942', pointFlags: flagsFor('KVAH'), pointColor:'#ff5d6c'}], {legend:false});
+  drawLineChart(document.getElementById('pfChart'), labels, [{label:'PF', data: ds.map(d=>d.pf), color:'#4fd1c5', pointFlags: flagsFor('PF'), pointColor:'#ff5d6c'}], {legend:false});
+}
+function renderHourly(data){
+  const byHour={};
+  data.forEach(d=>{ const h=d.ts.getHours(); (byHour[h]=byHour[h]||[]).push(d.kw); });
+  const labels=[...Array(24).keys()].map(h=>h+':00');
+  const values=[...Array(24).keys()].map(h=> byHour[h]? mean(byHour[h]):0);
+  drawBarChart(document.getElementById('hourlyChart'), labels, values, '#ff8a5b');
+}
+</script>
+</body>
+</html>
