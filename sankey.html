@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yield Waterfall Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.32.0/plotly.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Arial, Helvetica, sans-serif; background-color:#ffffff; color:#222; }
+  .tabs { display:flex; border-bottom:2px solid #e0e0e0; background:#fff; position:sticky; top:0; z-index:10; }
+  .tab-btn { flex:1; padding:16px; text-align:center; font-size:16px; font-weight:bold; cursor:pointer;
+             background:#f5f5f5; border:none; border-bottom:4px solid transparent; color:#444; }
+  .tab-btn.active { background:#fff; border-bottom:4px solid #1f77b4; color:#1f77b4; }
+  .tab-content { display:none; padding:24px; max-width:1100px; margin:0 auto; }
+  .tab-content.active { display:block; }
+  h2 { color:#1f77b4; }
+  .card { background:#fafafa; border:1px solid #e0e0e0; border-radius:10px; padding:20px; margin-bottom:20px; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; font-size:14px; }
+  th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+  th { background-color:#1f77b4; color:white; }
+  input[type="file"] { margin:10px 0; }
+  button.action-btn { background-color:#1f77b4; color:white; border:none; padding:10px 20px; border-radius:6px;
+                       font-size:15px; cursor:pointer; margin-top:10px; }
+  button.action-btn:hover { background-color:#155a8a; }
+  .kpi-row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+  .kpi-box { flex:1; min-width:160px; padding:20px; border-radius:10px; text-align:center; color:white; font-weight:bold; }
+  .kpi-box .val { font-size:28px; display:block; margin-top:6px; }
+  .green{background-color:#2ca02c;} .orange{background-color:#ff7f0e;} .red{background-color:#d62728;} .blue{background-color:#1f77b4;}
+  .insight-p { padding:10px 0; border-bottom:1px solid #eee; font-size:15px; }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="showTab('import', event)">1. Data Import</button>
+  <button class="tab-btn" onclick="showTab('dashboard', event)">2. Dashboard</button>
+  <button class="tab-btn" onclick="showTab('export', event)">3. Export</button>
+  <button class="tab-btn" onclick="showTab('insights', event)">4. AI Insights</button>
+</div>
+
+<div id="import" class="tab-content active">
+  <h2>Data Import — Material Balance (Pharma Batch)</h2>
+  <div class="card">
+    <p>Upload a CSV with columns: <b>Source, Target, Value, Type</b> (Type = main / recycle / byproduct / purge).
+       If no file is uploaded, sample data is used.</p>
+    <input type="file" id="fileInput" accept=".csv" onchange="handleFile(event)">
+    <p id="fileStatus" style="color:#2ca02c; font-weight:bold;"></p>
+    <table id="previewTable">
+      <thead><tr><th>Source</th><th>Target</th><th>Value</th><th>Type</th></tr></thead>
+      <tbody id="previewBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="dashboard" class="tab-content">
+  <h2>Shop Floor Yield Dashboard</h2>
+  <div class="kpi-row" id="kpiRow"></div>
+  <div class="card"><div id="sankeyChart"></div></div>
+</div>
+
+<div id="export" class="tab-content">
+  <h2>Export Data</h2>
+  <div class="card">
+    <p>Download the current material balance data as an Excel file.</p>
+    <button class="action-btn" onclick="exportExcel()">Download Excel (.xlsx)</button>
+  </div>
+</div>
+
+<div id="insights" class="tab-content">
+  <h2>AI Insights</h2>
+  <div class="card" id="insightsCard"><p>Visit the Dashboard tab first, then return here.</p></div>
+</div>
+
+<script>
+let flowData = [
+  { Source: "Feed",     Target: "Reactor",             Value: 100, Type: "main" },
+  { Source: "Reactor",  Target: "Separation",          Value: 85,  Type: "main" },
+  { Source: "Reactor",  Target: "Unreacted (Recycle)", Value: 15,  Type: "recycle" },
+  { Source: "Separation", Target: "Purification",      Value: 78,  Type: "main" },
+  { Source: "Separation", Target: "Byproduct",         Value: 7,   Type: "byproduct" },
+  { Source: "Purification", Target: "Final Product",   Value: 70,  Type: "main" },
+  { Source: "Purification", Target: "Purge/Off-spec",  Value: 8,   Type: "purge" },
+];
+
+function showTab(id, evt) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  evt.currentTarget.classList.add('active');
+  if (id === 'dashboard') renderDashboard();
+  if (id === 'insights') renderInsights();
+}
+
+function renderPreview() {
+  const body = document.getElementById('previewBody');
+  body.innerHTML = '';
+  flowData.forEach(row => {
+    body.innerHTML += `<tr><td>${row.Source}</td><td>${row.Target}</td><td>${row.Value}</td><td>${row.Type}</td></tr>`;
+  });
+}
+renderPreview();
+
+function handleFile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split(/\r?\n/).filter(l => l.trim() !== '');
+    const rows = lines.slice(1).map(line => {
+      const cols = line.split(',');
+      return {
+        Source: cols[0]?.trim(),
+        Target: cols[1]?.trim(),
+        Value: parseFloat(cols[2]),
+        Type: cols[3]?.trim().toLowerCase() || 'main'
+      };
+    });
+    flowData = rows;
+    document.getElementById('fileStatus').innerText = `Loaded ${rows.length} rows from ${file.name}`;
+    renderPreview();
+  };
+  reader.readAsText(file);
+}
+
+// ---------- NODE POSITIONING (shortest-path depth, not longest-path) ----------
+// This fixes dead-end nodes (like a recycle/purge stream) getting pushed to the
+// far-right column just because Plotly's default layout follows the longest chain.
+function computeNodePositions(nodeSet, flowData) {
+  const incoming = {};
+  nodeSet.forEach(n => incoming[n] = []);
+  flowData.forEach(f => incoming[f.Target].push(f.Source));
+
+  // Root nodes = nodes that never appear as a Target (true starting points)
+  const roots = nodeSet.filter(n => incoming[n].length === 0);
+
+  // BFS from all roots simultaneously -> shortest distance = depth
+  const depth = {};
+  roots.forEach(r => depth[r] = 0);
+  let queue = [...roots];
+  const adjacency = {};
+  nodeSet.forEach(n => adjacency[n] = []);
+  flowData.forEach(f => adjacency[f.Source].push(f.Target));
+
+  while (queue.length) {
+    const current = queue.shift();
+    adjacency[current].forEach(next => {
+      if (depth[next] === undefined) {
+        depth[next] = depth[current] + 1;
+        queue.push(next);
+      }
+    });
+  }
+  // Fallback for any unreached node (shouldn't normally happen)
+  nodeSet.forEach(n => { if (depth[n] === undefined) depth[n] = 0; });
+
+  const maxDepth = Math.max(...Object.values(depth), 1);
+
+  // Group nodes by depth to spread them vertically without overlapping
+  const byDepth = {};
+  nodeSet.forEach(n => {
+    const d = depth[n];
+    if (!byDepth[d]) byDepth[d] = [];
+    byDepth[d].push(n);
+  });
+
+  const x = [], y = [];
+  nodeSet.forEach(n => {
+    const d = depth[n];
+    const group = byDepth[d];
+    const idx = group.indexOf(n);
+    const xPos = 0.02 + (d / maxDepth) * 0.96;
+    const yPos = group.length === 1 ? 0.5 : 0.08 + (idx / (group.length - 1)) * 0.84;
+    x.push(xPos);
+    y.push(yPos);
+  });
+
+  return { x, y };
+}
+
+function renderDashboard() {
+  const nodeSet = [];
+  flowData.forEach(f => {
+    if (!nodeSet.includes(f.Source)) nodeSet.push(f.Source);
+    if (!nodeSet.includes(f.Target)) nodeSet.push(f.Target);
+  });
+  const colorMap = { main:"rgba(31,119,180,0.6)", recycle:"rgba(44,160,44,0.6)", byproduct:"rgba(255,127,14,0.6)", purge:"rgba(214,39,40,0.6)" };
+  const nodeColorMap = { main:"#1f77b4", recycle:"#2ca02c", byproduct:"#ff7f0e", purge:"#d62728" };
+  const source = flowData.map(f => nodeSet.indexOf(f.Source));
+  const target = flowData.map(f => nodeSet.indexOf(f.Target));
+  const value = flowData.map(f => f.Value);
+  const linkColors = flowData.map(f => colorMap[f.Type] || colorMap.main);
+  const nodeColors = nodeSet.map(n => {
+    const match = flowData.find(f => f.Target === n);
+    return match ? (nodeColorMap[match.Type] || "#1f77b4") : "#1f77b4";
+  });
+
+  const { x, y } = computeNodePositions(nodeSet, flowData);
+
+  const data = [{
+    type:"sankey", orientation:"h", arrangement: "fixed",
+    node:{ pad:20, thickness:20, line:{color:"black", width:0.5}, label:nodeSet, color:nodeColors, x:x, y:y },
+    link:{ source, target, value, color:linkColors }
+  }];
+  Plotly.newPlot('sankeyChart', data, { title:"Yield Waterfall: Feed to Final Product", font:{size:13}, height:500 });
+
+  const feed = flowData.find(f => f.Source.toLowerCase().includes('feed'))?.Value || 100;
+  const product = flowData.find(f => f.Target.toLowerCase().includes('product'))?.Value || 0;
+  const loss = flowData.filter(f => f.Type === 'purge' || f.Type === 'byproduct').reduce((a,b)=>a+b.Value,0);
+  const yieldPct = ((product/feed)*100).toFixed(1);
+  document.getElementById('kpiRow').innerHTML = `
+    <div class="kpi-box blue">Feed<span class="val">${feed}</span></div>
+    <div class="kpi-box green">Final Product<span class="val">${product}</span></div>
+    <div class="kpi-box orange">Losses (Byproduct+Purge)<span class="val">${loss}</span></div>
+    <div class="kpi-box ${yieldPct >= 65 ? 'green' : 'red'}">Overall Yield<span class="val">${yieldPct}%</span></div>`;
+}
+
+function renderInsights() {
+  const feed = flowData.find(f => f.Source.toLowerCase().includes('feed'))?.Value || 100;
+  const product = flowData.find(f => f.Target.toLowerCase().includes('product'))?.Value || 0;
+  const recycle = flowData.filter(f => f.Type === 'recycle').reduce((a,b)=>a+b.Value,0);
+  const byproduct = flowData.filter(f => f.Type === 'byproduct').reduce((a,b)=>a+b.Value,0);
+  const purge = flowData.filter(f => f.Type === 'purge').reduce((a,b)=>a+b.Value,0);
+  const yieldPct = (product/feed*100);
+
+  const insights = [];
+  insights.push(yieldPct >= 75
+    ? `✅ Overall yield of ${yieldPct.toFixed(1)}% is strong — process is running efficiently.`
+    : yieldPct >= 60
+    ? `⚠️ Overall yield of ${yieldPct.toFixed(1)}% is moderate — there is room to recover more product.`
+    : `🚨 Overall yield of ${yieldPct.toFixed(1)}% is low — investigate losses urgently.`);
+
+  if (purge > byproduct && purge > recycle) {
+    insights.push(`🔎 Purge/off-spec (${purge} units) is the single largest non-product stream. Focus purification stability here first.`);
+  } else if (byproduct > recycle) {
+    insights.push(`🔎 Byproduct formation (${byproduct} units) exceeds recycle losses. Review reaction selectivity/conditions.`);
+  } else {
+    insights.push(`🔎 Unreacted recycle (${recycle} units) is the dominant non-product stream — consider longer residence time or higher conversion per pass.`);
+  }
+  insights.push(`📌 Recommended action: prioritize the largest loss stream above before tuning smaller ones — it moves overall yield the most per unit effort.`);
+  document.getElementById('insightsCard').innerHTML = insights.map(i => `<p class="insight-p">${i}</p>`).join('');
+}
+
+function exportExcel() {
+  const ws = XLSX.utils.json_to_sheet(flowData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "MaterialBalance");
+  XLSX.writeFile(wb, "material_balance_export.xlsx");
+}
+</script>
+</body>
+</html>
