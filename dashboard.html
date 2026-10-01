@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Solvent Recovery - Distillation Monitor</title>
+<style>
+  html,body{height:100%}
+  body{background:#2b2b2b;color:#fff;font-family:Segoe UI,Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  h2{font-size:17px;margin:0 0 10px}
+  table{width:100%;height:100%;border-collapse:collapse;font-size:16px}
+  th,td{border:1px solid #555;padding:8px 10px;text-align:center}
+  th{background:#3d3d3d;font-weight:600}
+  td.name{font-weight:700;text-decoration:underline;cursor:pointer}
+  td.name:hover{background:#444}
+  .badge{display:inline-block;min-width:70px;padding:4px 12px;border-radius:4px;font-weight:700}
+  .ok{background:#2e7d32}
+  .chk{background:#c62828}
+  #tabs{flex:none;display:flex;gap:4px;border-bottom:2px solid #555;padding:6px 8px 0;flex-wrap:wrap}
+  .tab{padding:8px 14px;background:#3d3d3d;border:1px solid #555;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:8px}
+  .tab:hover{background:#4a4a4a}
+  .tab.active{background:#2b2b2b;font-weight:700;border-color:#888;margin-bottom:-2px;border-bottom:2px solid #2b2b2b}
+  .tab .dot{width:9px;height:9px;border-radius:50%;background:#2e7d32}
+  .tab .dot.chk{background:#c62828}
+  .tab .x{color:#bbb;font-weight:700;padding:0 4px;border-radius:3px}
+  .tab .x:hover{background:#c62828;color:#fff}
+  #main{flex:1;min-height:0;overflow:auto}
+  .pane{display:none}
+  .pane.active{display:block}
+  #overview.active{height:100%}
+  .detail{padding:14px}
+  .row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .card{background:#333;border:1px solid #555;border-radius:6px;padding:10px;flex:1;min-width:260px}
+  .card h3{font-size:14px;margin:0 0 8px;color:#ddd}
+  .kpi{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #444;font-size:13px}
+  .diag{border-left:4px solid #c62828;background:#3a2a2a;padding:8px 10px;margin-bottom:10px;border-radius:3px}
+  .diag.watch{border-color:#f9a825;background:#3a3526}
+  .diag.good{border-color:#2e7d32;background:#2a3a2c}
+  .fac{font-size:12px;margin:3px 0;color:#ddd}
+  .fac.no{color:#888}
+  .act{font-size:13px;margin-top:6px}
+  canvas{width:100%;height:80px;background:#222;border-radius:4px}
+  .lbl{font-size:12px;color:#ccc;margin:6px 0 2px}
+  select{background:#444;color:#fff;border:1px solid #666;padding:4px 8px;border-radius:4px}
+  .note{font-size:11px;color:#999;margin-top:10px}
+</style>
+</head>
+<body>
+
+<div id="tabs"></div>
+
+<div id="main">
+  <div id="overview" class="pane active">
+    <table>
+      <thead>
+        <tr>
+          <th>Column</th><th>Top Temp (°C)</th><th>Bottom Temp (°C)</th><th>Feed (LPH)</th>
+          <th>Steam Flow (kg/h)</th><th>Product (LPH)</th><th>Top Pressure (mmWC)</th>
+          <th>Bottom Pressure (mmWC)</th><th>Reflux (LPH)</th><th>Steam Totalizer (kg)</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <div id="panes"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+// placeholder baselines: replace with values from your good batches
+const N = { steam:350, dp:180, prodPerFeed:0.92, rr:1.74, topT:40.2, botT:58, topP:250 };
+
+const FAULTS = {
+  none:      {steam:1,   product:1,    reflux:1,    dpx:1,   dT:0,    dB:0, dP:0,   nT:0.15, nP:3},
+  flood:     {steam:1.25,product:0.9,  reflux:1,    dpx:1.3, dT:-1.2, dB:0, dP:0,   nT:0.9,  nP:3},
+  cutend:    {steam:1,   product:0.85, reflux:1,    dpx:1,   dT:3.5,  dB:6, dP:0,   nT:0.15, nP:3},
+  pressure:  {steam:1,   product:0.9,  reflux:1,    dpx:1,   dT:2,    dB:0, dP:120, nT:0.3,  nP:25},
+  overreflux:{steam:1.3, product:0.85, reflux:1.5,  dpx:1,   dT:0,    dB:0, dP:0,   nT:0.15, nP:3},
+  refluxfail:{steam:1,   product:1,    reflux:0.05, dpx:0.8, dT:5,    dB:0, dP:0,   nT:0.2,  nP:3},
+  lowsteam:  {steam:0.6, product:0.7,  reflux:1,    dpx:1,   dT:0,    dB:0, dP:0,   nT:0.15, nP:3}
+};
+const FAULT_LABELS = {none:'Normal',flood:'Flooding',cutend:'Cut end / lights depleted',pressure:'Condenser / pressure problem',
+                      overreflux:'Over-refluxing',refluxfail:'Reflux loss',lowsteam:'Low boil-up'};
+
+const INITIAL_FAULT = {'C-1741':'flood','C-2201':'cutend'};   // demo only
+const cols = ['C-2001','C-2002','C-2003','C-1741','C-1601','C-2201','C-1731'].map((name,i)=>({
+  name, i, fault: INITIAL_FAULT[name]||'none', open:false,
+  s:{steam:350,product:460,reflux:800,topT:N.topT,botT:N.botT,topP:N.topP,dp:180},
+  v:{}, hist:[], hits:{}, tot:12000+i*3500
+}));
+let current = 'overview';
+
+const rnd = s => (Math.random()-0.5)*2*s;
+const lastN = (c,key,n) => c.hist.slice(-n).map(p=>p[key]);
+const std = a => { if(a.length<5) return 0; const m=a.reduce((x,y)=>x+y,0)/a.length; return Math.sqrt(a.reduce((x,y)=>x+(y-m)**2,0)/a.length); };
+const pid = n => 'pane_'+n.replace(/[^\w]/g,'_');
+
+// ---- simulated data (replace this function with a DCS/historian read) ----
+function step(c){
+  const t = Date.now()/1000, m = FAULTS[c.fault];
+  const feed = 500*(1+0.04*Math.sin(t/25+c.i*2));
+  const tg = {
+    steam: 0.70*feed*m.steam,
+    product: N.prodPerFeed*feed*m.product,
+    reflux: N.prodPerFeed*feed*N.rr*m.reflux,
+    topT: N.topT+m.dT, botT: N.botT+m.dB, topP: N.topP+m.dP
+  };
+  tg.dp = 180*Math.pow(tg.steam/350,1.8)*m.dpx;
+  for(const k in tg) c.s[k] += (tg[k]-c.s[k])*0.2;
+  const topP = c.s.topP + rnd(m.nP), dp = c.s.dp + rnd(3);
+  c.tot += c.s.steam/3600;
+  c.v = { feed, topT:c.s.topT+rnd(m.nT), botT:c.s.botT+rnd(0.2), steam:c.s.steam+rnd(3),
+          product:c.s.product+rnd(3), topP, botP:topP+dp, reflux:Math.max(0,c.s.reflux+rnd(5)), tot:c.tot };
+  c.hist.push({topT:c.v.topT, dp, steam:c.v.steam, topP});
+  if(c.hist.length>120) c.hist.shift();
+}
+
+// derived values: only from the 10 given tags
+function derive(c){
+  const v=c.v;
+  return { ...v, dp:v.botP-v.topP, rr:v.reflux/v.product, rec:v.product/v.feed, spread:v.botT-v.topT,
+           sdT:std(lastN(c,'topT',20)), sdP:std(lastN(c,'topP',20)) };
+}
+
+// Each rule combines 3 factors
+const RULES = [
+ { id:'flood', title:'Probable flooding',
+   action:'Reduce steam gradually (about 5-10%), confirm feed rate is not above the normal batch rate, and watch ΔP return to its band.',
+   f:d=>[
+    {t:'ΔP high', ok:d.dp>1.2*N.dp, ev:`${d.dp.toFixed(0)} mmWC (normal ~${N.dp})`},
+    {t:'Steam flow high', ok:d.steam>1.15*N.steam, ev:`${d.steam.toFixed(0)} kg/h (normal ~${N.steam})`},
+    {t:'Top temperature unstable or low', ok:d.sdT>0.4||d.topT<N.topT-0.8, ev:`σ ${d.sdT.toFixed(2)} °C, now ${d.topT.toFixed(1)} °C`}] },
+ { id:'cutend', title:'Lights depleting - main cut ending',
+   action:'Take an in-process sample, raise reflux slightly or switch to the tail cut / stop the main cut. Check QC for chloroform and IPA.',
+   f:d=>[
+    {t:'Top temperature above normal', ok:d.topT-N.topT>2, ev:`+${(d.topT-N.topT).toFixed(1)} °C`},
+    {t:'Bottom temperature rising', ok:d.botT-N.botT>3, ev:`+${(d.botT-N.botT).toFixed(1)} °C`},
+    {t:'Top pressure steady (not a pressure effect)', ok:Math.abs(d.topP-N.topP)<40&&d.sdP<8, ev:`${d.topP.toFixed(0)} mmWC, σ ${d.sdP.toFixed(1)}`}] },
+ { id:'press', title:'Condenser / pressure problem',
+   action:'Check cooling water flow and temperature, condenser fouling and vent line for non-condensables. Do not change reflux until pressure is stable.',
+   f:d=>[
+    {t:'Top pressure high or fluctuating', ok:d.topP-N.topP>60||d.sdP>10, ev:`${d.topP.toFixed(0)} mmWC, σ ${d.sdP.toFixed(1)}`},
+    {t:'Top temperature up', ok:d.topT-N.topT>1, ev:`+${(d.topT-N.topT).toFixed(1)} °C`},
+    {t:'Product rate dropping', ok:d.rec<N.prodPerFeed*0.95, ev:`recovery ${(d.rec*100).toFixed(0)}% of feed`}] },
+ { id:'overreflux', title:'Over-refluxing - energy waste',
+   action:'Reduce reflux toward the normal band (about 1.7) and check steam traps and insulation. Compare with the best past batch.',
+   f:d=>[
+    {t:'Reflux ratio high', ok:d.rr>1.25*N.rr, ev:`${d.rr.toFixed(2)} (normal ~${N.rr})`},
+    {t:'Steam flow high', ok:d.steam>1.15*N.steam, ev:`${d.steam.toFixed(0)} kg/h (normal ~${N.steam})`},
+    {t:'Recovery low', ok:d.rec<0.87, ev:`${(d.rec*100).toFixed(0)}% of feed`}] },
+ { id:'refluxfail', title:'Reflux loss',
+   action:'Inspect reflux pump, line valve and drum level. Reduce steam until reflux is restored to avoid off-spec distillate.',
+   f:d=>[
+    {t:'Reflux ratio very low', ok:d.rr<0.3*N.rr, ev:`${d.rr.toFixed(2)} (reflux ${d.reflux.toFixed(0)} LPH)`},
+    {t:'Top temperature rising', ok:d.topT-N.topT>2, ev:`+${(d.topT-N.topT).toFixed(1)} °C`},
+    {t:'Steam still on', ok:d.steam>0.8*N.steam, ev:`${d.steam.toFixed(0)} kg/h`}] },
+ { id:'lowsteam', title:'Low boil-up - weak steam supply',
+   action:'Check steam header pressure, control valve and steam traps. Confirm reflux is not excessive for the available boil-up.',
+   f:d=>[
+    {t:'Steam flow low', ok:d.steam<0.75*N.steam, ev:`${d.steam.toFixed(0)} kg/h (normal ~${N.steam})`},
+    {t:'ΔP low', ok:d.dp<0.6*N.dp, ev:`${d.dp.toFixed(0)} mmWC`},
+    {t:'Product rate low', ok:d.rec<N.prodPerFeed*0.85, ev:`recovery ${(d.rec*100).toFixed(0)}% of feed`}] }
+];
+
+function evaluate(c){
+  const d = derive(c), out=[];
+  RULES.forEach(r=>{
+    const f = r.f(d), n = f.filter(x=>x.ok).length;
+    c.hits[r.id] = n===f.length ? (c.hits[r.id]||0)+1 : 0;
+    const active = c.hits[r.id]>=5;      // use 3-5 minutes on real data
+    if(active || n>=2) out.push({r, f, active});
+  });
+  return {d, diag:out};
+}
+
+// ---- tab handling ----
+function openTab(name){
+  const c = cols.find(x=>x.name===name);
+  if(!c.open){
+    c.open = true;
+    const opts = Object.keys(FAULTS).map(k=>`<option value="${k}" ${k===c.fault?'selected':''}>${FAULT_LABELS[k]}</option>`).join('');
+    const p = document.createElement('div');
+    p.className = 'pane detail'; p.id = pid(name);
+    p.innerHTML = `
+      <h2>${name} - details</h2>
+      <div class="row">
+        <div class="card" style="flex:1.4"><h3>Diagnosis and suggested action</h3><div id="${pid(name)}_diag"></div></div>
+        <div class="card"><h3>Derived values</h3><div id="${pid(name)}_kpis"></div>
+          <div style="margin-top:12px;font-size:12px;color:#ccc">Demo: simulate a condition<br>
+          <select onchange="setFault('${name}',this.value)">${opts}</select></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card"><div class="lbl" id="${pid(name)}_l1"></div><canvas id="${pid(name)}_c1" width="400" height="80"></canvas></div>
+        <div class="card"><div class="lbl" id="${pid(name)}_l2"></div><canvas id="${pid(name)}_c2" width="400" height="80"></canvas></div>
+        <div class="card"><div class="lbl" id="${pid(name)}_l3"></div><canvas id="${pid(name)}_c3" width="400" height="80"></canvas></div>
+      </div>
+      <div class="note">Trends show the last 2 minutes. A diagnosis becomes CHECK only when all 3 factors are true for 5 consecutive seconds (use 3-5 minutes on real data). WATCH = 2 of 3 factors present.</div>`;
+    $('panes').appendChild(p);
+  }
+  switchTab(name);
+}
+function closeTab(name, ev){
+  ev.stopPropagation();
+  const c = cols.find(x=>x.name===name);
+  c.open = false;
+  const p = $(pid(name)); if(p) p.remove();
+  if(current===name) current = 'overview';
+  switchTab(current);
+}
+function switchTab(name){
+  current = name;
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+  $(name==='overview' ? 'overview' : pid(name)).classList.add('active');
+  renderTabs();
+  if(name!=='overview') renderDetail(cols.find(c=>c.name===name));
+}
+function renderTabs(){
+  let h = `<div class="tab ${current==='overview'?'active':''}" onclick="switchTab('overview')">Overview</div>`;
+  cols.filter(c=>c.open).forEach(c=>{
+    const bad = c.ev && c.ev.diag.some(x=>x.active);
+    h += `<div class="tab ${current===c.name?'active':''}" onclick="switchTab('${c.name}')">
+            <span class="dot ${bad?'chk':''}"></span>${c.name}
+            <span class="x" onclick="closeTab('${c.name}',event)">×</span></div>`;
+  });
+  $('tabs').innerHTML = h;
+}
+function setFault(name, val){ cols.find(c=>c.name===name).fault = val; }
+
+// ---- rendering ----
+function render(){
+  $('tbody').innerHTML = cols.map(c=>{
+    const v=c.v, e=evaluate(c); c.ev=e;
+    const bad = e.diag.some(x=>x.active);
+    return `<tr>
+      <td class="name" onclick="openTab('${c.name}')">${c.name}</td>
+      <td>${v.topT.toFixed(1)}</td><td>${v.botT.toFixed(1)}</td><td>${v.feed.toFixed(0)}</td>
+      <td>${v.steam.toFixed(0)}</td><td>${v.product.toFixed(0)}</td><td>${v.topP.toFixed(0)}</td>
+      <td>${v.botP.toFixed(0)}</td><td>${v.reflux.toFixed(0)}</td><td>${v.tot.toFixed(1)}</td>
+      <td><span class="badge ${bad?'chk':'ok'}">${bad?'CHECK':'OK'}</span></td></tr>`;
+  }).join('');
+  renderTabs();
+  const cur = cols.find(c=>c.name===current);
+  if(cur) renderDetail(cur);
+}
+
+function renderDetail(c){
+  if(!c.open || !c.ev) return;
+  const P = pid(c.name), {d,diag} = c.ev;
+  const active = diag.filter(x=>x.active), watch = diag.filter(x=>!x.active);
+  let html = '';
+  if(!active.length && !watch.length) html = '<div class="diag good"><b>No issues detected</b><div class="act">All monitored combinations are within normal range.</div></div>';
+  active.concat(watch).forEach(x=>{
+    html += `<div class="diag ${x.active?'':'watch'}"><b>${x.active?'CHECK':'WATCH'}: ${x.r.title}</b>`+
+      x.f.map(k=>`<div class="fac ${k.ok?'':'no'}">${k.ok?'✔':'✘'} ${k.t} - ${k.ev}</div>`).join('')+
+      (x.active?`<div class="act"><b>Suggested action:</b> ${x.r.action}</div>`:'')+`</div>`;
+  });
+  $(P+'_diag').innerHTML = html;
+  const kp = [['ΔP (bottom - top pressure)',d.dp.toFixed(0)+' mmWC'],
+    ['Reflux ratio (reflux / product)',d.rr.toFixed(2)],
+    ['Recovery (product / feed)',(d.rec*100).toFixed(0)+' %'],
+    ['Temp spread (bottom - top)',d.spread.toFixed(1)+' °C']];
+  $(P+'_kpis').innerHTML = kp.map(k=>`<div class="kpi"><span>${k[0]}</span><b>${k[1]}</b></div>`).join('');
+  spark(P,1,'topT','#4fc3f7','Top temperature (°C)',c);
+  spark(P,2,'dp','#ffb74d','Column ΔP (mmWC)',c);
+  spark(P,3,'steam','#81c784','Steam flow (kg/h)',c);
+}
+
+function spark(P,n,key,color,label,c){
+  const cv=$(P+'_c'+n), x=cv.getContext('2d'), w=cv.width, h=cv.height;
+  const a=c.hist.map(p=>p[key]); if(!a.length) return;
+  const mn=Math.min(...a), mx=Math.max(...a), r=(mx-mn)||1;
+  x.clearRect(0,0,w,h); x.strokeStyle=color; x.lineWidth=1.5; x.beginPath();
+  a.forEach((v,i)=>{const X=i/Math.max(a.length-1,1)*w, Y=h-6-(v-mn)/r*(h-12); i?x.lineTo(X,Y):x.moveTo(X,Y);});
+  x.stroke();
+  $(P+'_l'+n).textContent = label+': '+a[a.length-1].toFixed(1)+'  (range '+mn.toFixed(1)+' to '+mx.toFixed(1)+')';
+}
+
+cols.forEach(c=>{ for(let i=0;i<5;i++) step(c); });
+render();
+setInterval(()=>{ cols.forEach(step); render(); }, 1000);
+</script>
+</body>
+</html>
