@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Briquette Boiler Dashboard (Sample)</title>
+<style>
+  :root{
+    --orange:#D04A02; --amber:#EB8C00; --yellow:#FFB600;
+    --red:#E0301E; --rose:#DB536A; --green:#2E7D32;
+    --charcoal:#2D2D2D; --grey:#DEDEDE; --mid:#7D7D7D;
+    --bg:#F5F5F5; --card:#FFFFFF; --text:#2D2D2D; --line:#E5E5E5;
+  }
+  body.dark{--bg:#1E1E1E;--card:#2D2D2D;--text:#F5F5F5;--line:#444;--grey:#444}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  .app{display:flex;min-height:100vh}
+  .sidebar{width:72px;background:var(--charcoal);color:#fff}
+  .sidebar .item{padding:14px 0;text-align:center;background:var(--orange);font-size:11px}
+  .sidebar .item b{display:block;font-size:20px;margin-bottom:4px}
+  .main{flex:1;min-width:0}
+
+  .strip{background:var(--charcoal);color:#fff;padding:8px 20px;font-size:12px}
+  .strip b{color:var(--yellow)}
+
+  .topbar{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--card);border-bottom:3px solid var(--orange);flex-wrap:wrap}
+  .topbar h1{font-size:20px;margin:0 12px 0 0;color:var(--orange)}
+  select,input{padding:7px 10px;border:1px solid var(--grey);border-radius:3px;background:var(--card);color:var(--text);font-size:13px}
+  .btn{background:var(--orange);color:#fff;border:0;padding:8px 16px;border-radius:3px;cursor:pointer;font-size:13px}
+  .btn:hover{background:var(--amber)}
+  .spacer{flex:1}
+  .brand{font-weight:bold;letter-spacing:.5px}.brand span{color:var(--orange)}
+
+  .infobar{display:flex;align-items:center;gap:28px;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .infobar .view a{margin-right:16px;padding-bottom:6px;cursor:pointer;font-weight:bold;color:var(--mid)}
+  .infobar .view a.active{color:var(--text);border-bottom:3px solid var(--orange)}
+  .infobar small{display:block;color:var(--mid);font-size:11px}
+  .toggle{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+  .toggle .sw{width:36px;height:18px;border-radius:9px;background:var(--orange);position:relative}
+  .toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.2s}
+  body.dark .toggle .sw::after{left:20px}
+
+  .tabs{display:flex;gap:4px;padding:0 20px;background:var(--card);border-bottom:1px solid var(--line);overflow-x:auto}
+  .tabs a{padding:12px 14px;cursor:pointer;color:var(--mid);white-space:nowrap;border-bottom:3px solid transparent}
+  .tabs a:hover{color:var(--orange)}
+  .tabs a.active{color:var(--orange);font-weight:bold;border-bottom-color:var(--orange)}
+  .subtabs{padding:0;margin-bottom:16px;border:0}
+  .subtabs a{font-size:13px;padding:10px 12px}
+  .subtabs a.active{color:var(--text);border-bottom-color:var(--amber)}
+
+  .content{padding:20px}
+  .panel{display:none}.panel.active{display:block}
+  .seg{display:flex;gap:16px;margin-bottom:16px}
+  .seg button{flex:1;max-width:320px;padding:14px;background:var(--card);border:1px solid var(--grey);border-radius:3px;cursor:pointer;font-weight:bold;color:var(--text)}
+  .seg button.active{border:2px solid var(--orange);color:var(--orange)}
+
+  .grid{display:grid;gap:16px}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .g5{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  @media(max-width:900px){.two{grid-template-columns:1fr}}
+  .full{margin-top:16px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+  .card h3{margin:0 0 12px;font-size:13px;color:var(--mid);text-transform:uppercase;letter-spacing:.5px}
+  .card.planned{border:1px dashed var(--amber)}
+  .card.planned h3::after{content:"PLANNED";font-size:9px;padding:2px 7px;border-radius:3px;color:#fff;margin-left:10px;vertical-align:middle;background:var(--amber)}
+
+  .kpi{text-align:center;padding:8px;border-radius:4px}
+  .kpi.planned{border:1px dashed var(--amber)}
+  .kpi.inst{border:1px solid var(--green)}
+  .kpi .v{font-size:28px;font-weight:bold}
+  .kpi .u{font-size:13px;color:var(--mid);margin-left:3px}
+  .kpi .l{margin-bottom:4px;color:var(--mid);font-size:12px}
+  .tag{display:block;width:max-content;margin:6px auto 0;font-size:9px;padding:2px 6px;border-radius:3px;background:var(--amber);color:#fff}
+  .tag.g{background:var(--green)}
+
+  .tile{background:var(--orange);color:#fff;border-radius:3px;padding:14px}
+  .tile.alt{background:var(--charcoal)}.tile.amb{background:var(--amber)}
+  .tile.planned{outline:2px dashed #fff;outline-offset:-4px}
+  .tile small{display:block;opacity:.9;margin-bottom:6px;font-size:12px}
+  .tile b{font-size:22px}
+  .tile .tag{margin:6px 0 0;background:rgba(255,255,255,.28)}
+
+  .gauge{text-align:center}
+  .gauge svg{width:170px}
+  .gauge .gv{font-size:26px;font-weight:bold;margin-top:-34px}
+  .gauge .gl{color:var(--mid);margin-top:8px;font-size:13px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:var(--charcoal);color:#fff;text-align:left;padding:9px 12px;font-weight:600}
+  td{padding:9px 12px;border-bottom:1px solid var(--line)}
+  tr:nth-child(even) td{background:rgba(0,0,0,.025)}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+  .ok{background:var(--green)}.bad{background:var(--red)}
+  h2.sec{font-size:16px;margin:22px 0 10px;border-left:4px solid var(--orange);padding-left:10px}
+  h2.sec:first-child{margin-top:0}
+
+  .alert{background:var(--card);padding:10px 12px;margin-bottom:10px;border-radius:3px;border:1px solid var(--line);border-left:4px solid var(--amber)}
+  .alert.high{border-left-color:var(--red)}
+  .badge{font-size:10px;padding:2px 6px;border-radius:3px;color:#fff;background:var(--amber)}
+  .badge.red{background:var(--red)}
+  .alert .badge{float:right}
+  .pri td{text-align:center;font-weight:bold;color:#fff}
+  .c-r{background:var(--red)}.c-a{background:var(--amber)}.c-y{background:var(--yellow);color:#000!important}
+
+  .filters{display:flex;gap:14px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap}
+  .filters label{display:block;font-size:11px;color:var(--mid);margin-bottom:3px}
+  .legend{margin-top:6px}
+  .legend span{margin-right:16px;font-size:12px}
+  .legend i{display:inline-block;width:10px;height:10px;margin-right:4px}
+  .axnote{font-size:11px;color:var(--mid);margin-top:4px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar"><div class="item"><b>▦</b>Dashboard</div></div>
+
+  <div class="main">
+    <div class="strip"><b>SAMPLE DATA.</b> Only steam flow (and the load calculated from it) is installed. Everything marked <b>PLANNED</b> needs a sensor that is not installed yet, and its values are illustrative.</div>
+
+    <div class="topbar">
+      <h1>Dashboard</h1>
+      <select><option>Customer A</option></select>
+      <select><option>Plant Location</option></select>
+      <select><option>Briquette Boiler 1</option></select>
+      <button class="btn" onclick="location.reload()">⟳</button>
+      <div class="spacer"></div>
+      <div class="brand">BOILER <span>INSIGHTS</span></div>
+    </div>
+
+    <div class="infobar">
+      <div class="view"><a>Fleet Dashboard</a><a class="active">Unit Summary</a></div>
+      <div>📍 Plant Location &nbsp; ☁ 30.8°C</div>
+      <div><small>Current time (GMT +5:30)</small><b id="now">--</b></div>
+      <div><small>Last updated on</small><b id="upd">--</b></div>
+      <div class="spacer"></div>
+      <div class="toggle" onclick="document.body.classList.toggle('dark')">Dark <div class="sw"></div> Light</div>
+    </div>
+
+    <div class="tabs" id="mainTabs">
+      <a data-t="overview" class="active">Overview</a>
+      <a data-t="hist">Historical Data</a>
+      <a data-t="energy">Energy Manager</a>
+      <a data-t="lookup">LookUp Table</a>
+      <a data-t="alarms">Alarms</a>
+    </div>
+
+    <div class="content">
+
+      <!-- OVERVIEW -->
+      <div class="panel active" id="overview">
+        <div class="card" style="margin-bottom:16px">
+          <h3>Instantaneous Parameters</h3>
+          <div class="grid g5" id="kpiMain"></div>
+        </div>
+
+        <div class="two">
+          <div class="card planned">
+            <h3>Average Parameters</h3>
+            <div class="grid g3">
+              <div class="gauge" data-v="76.9" data-c="#D04A02" data-l="Indirect Eff. (GCV)"></div>
+              <div class="gauge" data-v="83.8" data-c="#EB8C00" data-l="Indirect Eff. (NCV)"></div>
+              <div class="gauge" data-v="70.0" data-c="#DB536A" data-l="Direct Eff. (GCV)"></div>
+            </div>
+          </div>
+          <div class="card planned">
+            <h3>Temperatures &amp; Fan</h3>
+            <div class="grid g3" id="kpiTemp"></div>
+          </div>
+        </div>
+
+        <div class="card planned full">
+          <h3>Instantaneous Parameters – Plots (Last 1 hour)</h3>
+          <svg id="chartOv" viewBox="0 0 1000 340" width="100%"></svg>
+          <div class="legend" id="chartOvLeg"></div>
+        </div>
+
+        <div class="two">
+          <div class="card planned">
+            <h3>Priority Actions</h3>
+            <table class="pri">
+              <tr><th></th><th>High</th><th>Medium</th><th>Low</th></tr>
+              <tr><td style="color:var(--text)">New</td><td class="c-r">0</td><td class="c-a">0</td><td class="c-y">0</td></tr>
+              <tr><td style="color:var(--text)">In Progress</td><td class="c-r">1</td><td class="c-a">1</td><td class="c-y">1</td></tr>
+            </table>
+          </div>
+          <div class="card planned">
+            <h3>Alerts &amp; Recommendations</h3>
+            <div class="alert high"><span class="badge red">DEVIATION</span><b>Minor-Alarms-High</b><br><small>Flue gas temperature: 265 °C</small></div>
+            <div class="alert"><span class="badge">MEDIUM</span><b>Data not entered for 1–14 Oct</b><br><a style="color:var(--orange);cursor:pointer">Update now ↗</a></div>
+            <div class="alert"><span class="badge">WARNING</span><b>Oxygen Level High</b><br><small>Close FD damper slightly. O₂ difference: 1.73</small></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HISTORICAL -->
+      <div class="panel" id="hist">
+        <div class="filters">
+          <div><label>Quick Time Ranges</label><select><option>Today</option><option>Last 7 days</option></select></div>
+          <div><label>From</label><input type="datetime-local"></div>
+          <div><label>To</label><input type="datetime-local"></div>
+          <div><label>Data Resolution</label><select><option>Minute average</option><option>Hourly average</option></select></div>
+          <div><label>Feature Combos</label>
+            <select id="comboSel">
+              <option>Load-Steam Pressure</option>
+              <option>Load-Steam Flow</option>
+              <option>Load-Oxygen</option>
+            </select></div>
+          <button class="btn" id="plotHist">Plot</button><button class="btn" style="background:var(--charcoal)">⬇</button>
+        </div>
+        <div class="card planned">
+          <svg id="chartHist" viewBox="0 0 1000 340" width="100%"></svg>
+          <div class="legend" id="chartHistLeg"></div>
+        </div>
+      </div>
+
+      <!-- ENERGY MANAGER -->
+      <div class="panel" id="energy">
+        <div class="seg" id="emSeg">
+          <button class="active" data-s="fuel">Fuel</button>
+          <button data-s="diag">Diagnostics</button>
+        </div>
+
+        <div class="em" id="fuel">
+          <div class="tabs subtabs" id="fuelTabs">
+            <a class="active" data-f="eff">Fuel Efficiency</a><a data-f="cons">Fuel Consumption</a>
+          </div>
+
+          <div id="eff" class="fp">
+            <div class="filters">
+              <div><label>Quick Time Ranges</label><select><option>Today</option></select></div>
+              <div><label>From</label><input type="datetime-local"></div>
+              <div><label>To</label><input type="datetime-local"></div>
+              <div><label>Data Resolution</label><select><option>Minute average</option><option>Hourly average</option></select></div>
+              <div><label>View</label>
+                <select id="effSel"><option value="direct">Direct Efficiency</option><option value="indirect">Indirect Efficiency</option></select></div>
+              <button class="btn" id="plotEff">Plot</button><button class="btn" style="background:var(--charcoal)">⬇</button>
+            </div>
+            <div class="card planned">
+              <svg id="chartEff" viewBox="0 0 1000 360" width="100%"></svg>
+              <div class="legend" id="chartEffLeg"></div>
+            </div>
+          </div>
+
+          <div id="cons" class="fp" style="display:none">
+            <div class="filters">
+              <div><label>Report Type</label><select><option>Daily</option><option>Monthly</option></select></div>
+              <div><label>Date</label><input type="date"></div>
+              <button class="btn">Plot</button>
+            </div>
+            <div class="grid g5" id="tilesCons"></div>
+            <div class="two">
+              <div class="card planned"><h3>Cost of Fuel (₹)</h3><svg id="chartCostFuel" viewBox="0 0 500 260" width="100%"></svg></div>
+              <div class="card planned"><h3>Cost of Water (₹)</h3><svg id="chartCostWater" viewBox="0 0 500 260" width="100%"></svg></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="em" id="diag" style="display:none">
+          <div class="tabs subtabs" id="diagTabs">
+            <a class="active" data-d="d1">Consistency Checkup</a>
+            <a data-d="d2">Damper Setting</a>
+            <a data-d="d3">Fuel Change</a>
+          </div>
+          <div class="dp" id="d1">
+            <h2 class="sec">Oxygen Performance</h2>
+            <div class="card planned"><table id="tblO2"></table></div>
+          </div>
+          <div class="dp" id="d2" style="display:none">
+            <h2 class="sec">Damper Setting</h2>
+            <div class="card planned"><table id="tblDamper"></table></div>
+          </div>
+          <div class="dp" id="d3" style="display:none">
+            <div class="two" style="margin-top:0">
+              <div><h2 class="sec">Fuel Change</h2><div class="card planned"><table id="tblFuel"></table></div></div>
+              <div><h2 class="sec">Lookup Change Effect on Boiler Performance</h2><div class="card planned"><table id="tblSFR"></table></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOOKUP -->
+      <div class="panel" id="lookup">
+        <h2 class="sec" style="margin-top:0">Efficiency by Load Bucket</h2>
+        <div class="card planned"><table id="tblLookEff"></table></div>
+        <h2 class="sec">Lookup Table Changes</h2>
+        <div class="card planned"><table id="tblLookChg"></table></div>
+      </div>
+
+      <!-- ALARMS -->
+      <div class="panel" id="alarms"><div class="card planned"><table id="tblAlarms"></table></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+function table(el,head,rows){
+  $(el).innerHTML='<tr>'+head.map(h=>`<th>${h}</th>`).join('')+'</tr>'+
+    rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
+}
+function tick(){
+  const d=new Date();
+  $('#now').textContent=d.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  $('#upd').textContent=new Date(d-60000).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+}
+tick();setInterval(tick,1000);
+
+$$('#mainTabs a').forEach(a=>a.onclick=()=>{
+  $$('#mainTabs a').forEach(x=>x.classList.remove('active'));a.classList.add('active');
+  $$('.content > .panel').forEach(p=>p.classList.remove('active'));
+  $('#'+a.dataset.t).classList.add('active');
+});
+function bind(sel,attr,panelSel){
+  $$(sel+' a, '+sel+' button').forEach(a=>a.onclick=()=>{
+    $$(sel+' a, '+sel+' button').forEach(x=>x.classList.remove('active'));a.classList.add('active');
+    $$(panelSel).forEach(p=>p.style.display='none');$('#'+a.dataset[attr]).style.display='block';
+  });
+}
+bind('#emSeg','s','.em'); bind('#fuelTabs','f','.fp'); bind('#diagTabs','d','.dp');
+
+const kpi=(l,v,u,inst)=>`<div class="kpi ${inst?'inst':'planned'}"><div class="l">${l}</div>
+  <span class="v">${v}</span><span class="u">${u}</span>
+  <span class="tag ${inst?'g':''}">${inst?'INSTALLED':'PLANNED'}</span></div>`;
+const tile=(l,v,u,cls,inst)=>`<div class="tile ${cls} ${inst?'':'planned'}"><small>${l}</small><b>${v}</b> ${u}
+  <span class="tag">${inst?'INSTALLED':'PLANNED'}</span></div>`;
+
+$('#kpiMain').innerHTML=[
+  ['Steam Flow','6483','kg/h',1],['Load (% of rated capacity)','56.5','%',1],
+  ['Steam Pressure','13.1','kg/cm²',0],['Oxygen','10.7','%',0],['Furnace Draft','-4.2','mmWC',0]
+].map(a=>kpi(...a)).join('');
+
+$('#kpiTemp').innerHTML=[
+  ['Flue Gas Temp','245','°C',0],['Steam Outlet Temp','214','°C',0],['Feedwater Temp','78','°C',0],
+  ['ID Fan Damper','62','% open',0],['FD Fan Damper','48','% open',0],['Fuel (hourly)','1.26','T',0]
+].map(a=>kpi(...a)).join('');
+
+$('#tilesCons').innerHTML=[
+  ['Net Fuel Consumption','31.01','Tons','',0],
+  ['Net Steam Generation','152.00','Tons','',1],
+  ['Resultant Steam To Fuel Ratio','4.90','','',0],
+  ['Average direct Efficiency','71.25','%','',0],
+  ['Cost of Fuel','201565.00','(Rs)','alt',0],
+  ['Cost of Water','3082.40','(Rs)','alt',0],
+  ['Cost of Steam Per Kg','1.35','(Rs)','amb',0],
+  ['Power Consumption','0.00','(kWh)','amb',0],
+  ['Cost Of Power','0.00','(Rs)','amb',0],
+  ['Average Heat Output GCV','3574852.02','(Kcal/Kg)','alt',0]
+].map(a=>tile(...a)).join('');
+
+$$('.gauge').forEach(g=>{
+  const v=+g.dataset.v,len=157.08,c=g.dataset.c;
+  g.innerHTML=`<svg viewBox="0 0 120 70">
+    <path d="M10 60 A50 50 0 0 1 110 60" fill="none" stroke="#DEDEDE" stroke-width="12"/>
+    <path d="M10 60 A50 50 0 0 1 110 60" fill="none" stroke="${c}" stroke-width="12" stroke-dasharray="${len*v/100} ${len}"/></svg>
+    <div class="gv">${v}<small>%</small></div><div class="gl">${g.dataset.l}</div>`;
+});
+
+/* ---------- multi-axis trend chart (like the Edge Live plots) ----------
+   Each series has its own real axis (name + unit + min/max).
+   side:'L' stacks the axis on the left, side:'R' stacks it on the right.
+   Full vertical and horizontal grid lines, noisy minute-level lines. */
+function gen(n,lo,hi,k){
+  const mid=(lo+hi)/2, r=(hi-lo)/2, p1=Math.random()*6, p2=Math.random()*6;
+  return Array.from({length:n},(_,i)=>{
+    const v=mid+r*(0.5*Math.sin(i/k+p1)+0.25*Math.sin(i/(k/3)+p2)+0.35*(Math.random()-.5));
+    return Math.min(hi,Math.max(lo,v));
+  });
+}
+function fmt(v){
+  const a=Math.abs(v);
+  if(a>=1e6) return (v/1e6).toFixed(1).replace(/\.0$/,'')+'M';
+  if(a>=1000) return Math.round(v).toString();
+  if(a>=100) return v.toFixed(0);
+  return (+v.toFixed(2)).toString();
+}
+function drawMulti(id,w,h,series,xTicks,xLabel,opt){
+  opt=opt||{};
+  const AX=56, T='#7D7D7D';
+  const L=series.filter(s=>s.side!=='R'), R=series.filter(s=>s.side==='R');
+  const pl=12+L.length*AX, pr=12+R.length*AX, pt=14, pb=48;
+  const pw=w-pl-pr, ph=h-pt-pb, xr=pl+pw;
+  let s='';
+  // horizontal grid (5 rows)
+  for(let i=0;i<=5;i++){const y=pt+ph*i/5;s+=`<line x1="${pl}" x2="${xr}" y1="${y}" y2="${y}" stroke="#D5D5D5"/>`}
+  // vertical grid + x ticks
+  xTicks.forEach((t,i)=>{
+    const x=pl+pw*i/(xTicks.length-1);
+    s+=`<line x1="${x}" x2="${x}" y1="${pt}" y2="${pt+ph}" stroke="#D5D5D5"/>`;
+    s+=`<text x="${x}" y="${pt+ph+16}" text-anchor="middle" font-size="11" fill="${T}">${t}</text>`;
+  });
+  s+=`<text x="${pl+pw/2}" y="${h-8}" text-anchor="middle" font-size="12" fill="${T}">${xLabel}</text>`;
+  // axes
+  function axis(sr,x,side){
+    s+=`<line x1="${x}" x2="${x}" y1="${pt}" y2="${pt+ph}" stroke="${sr.color}" stroke-width="1.5"/>`;
+    for(let i=0;i<=5;i++){
+      const y=pt+ph*i/5, v=sr.max-(sr.max-sr.min)*i/5;
+      s+=`<line x1="${x}" x2="${x+(side==='L'?-4:4)}" y1="${y}" y2="${y}" stroke="${sr.color}"/>`;
+      s+=`<text x="${x+(side==='L'?-6:6)}" y="${y+3}" text-anchor="${side==='L'?'end':'start'}" font-size="10" fill="${sr.color}">${fmt(v)}</text>`;
+    }
+    const tx=x+(side==='L'?-44:46);
+    s+=`<text transform="translate(${tx} ${pt+ph/2}) rotate(-90)" text-anchor="middle" font-size="11" fill="${sr.color}">${sr.axis}</text>`;
+  }
+  L.forEach((sr,i)=>axis(sr,pl-i*AX,'L'));
+  R.forEach((sr,i)=>axis(sr,xr+i*AX,'R'));
+  // lines
+  series.forEach(sr=>{
+    const n=sr.d.length;
+    const pts=sr.d.map((v,i)=>(pl+pw*i/(n-1)).toFixed(1)+','+(pt+ph-ph*(v-sr.min)/(sr.max-sr.min)).toFixed(1)).join(' ');
+    s+=`<polyline points="${pts}" fill="none" stroke="${sr.color}" stroke-width="${opt.sw||1.6}" stroke-linejoin="round"/>`;
+  });
+  $(id).innerHTML=s;
+  $(id+'Leg').innerHTML=series.map(sr=>`<span><i style="background:${sr.color}"></i>${sr.name}</span>`).join('')+
+    '<div class="axnote">Each line has its own labelled axis (same colour as the line). Sample data.</div>';
+}
+const S=(name,axis,min,max,color,side,n,k)=>({name,axis,min,max,color,side,d:gen(n,min,max,k)});
+const LOAD='Load (% of rated capacity)';
+
+/* Overview: last 1 hour, 09:40 to 10:30 */
+drawMulti('#chartOv',1000,340,[
+  S('Load (% of rated capacity)',LOAD+' (%)',0,100,'#6A6A6A','L',90,3),
+  S('Furnace draft','Furnace draft (mmWC)',-20,20,'#D04A02','R',90,2.5),
+  S('Flue gas temperature','Flue gas temp (°C)',225,265,'#B9A000','R',90,3.5),
+  S('Steam pressure','Steam pressure (kg/cm²)',10,18,'#2E7D32','R',90,2.8)
+],['09:40','09:50','10:00','10:10','10:20','10:30'],'Time (hh:mm, last 1 hour)');
+
+/* Historical: feature combos */
+const HIST={
+  'Load-Steam Pressure':()=>[
+    S('Load (% of rated capacity)',LOAD+' (%)',60,90,'#3F2FA3','L',50,2.2),
+    S('Steam pressure','Steam pressure (kg/cm²)',13.2,13.5,'#47B5B5','R',50,2.6)],
+  'Load-Steam Flow':()=>[
+    S('Load (% of rated capacity)',LOAD+' (%)',40,80,'#3F2FA3','L',50,2.2),
+    S('Steam flow','Steam flow (kg/h)',4500,8500,'#47B5B5','R',50,2.6)],
+  'Load-Oxygen':()=>[
+    S('Load (% of rated capacity)',LOAD+' (%)',40,80,'#3F2FA3','L',50,2.2),
+    S('Oxygen','Oxygen in flue gas (%)',8,13,'#47B5B5','R',50,2.6)]
+};
+const hrs=['00:00','04:00','08:00','12:00','16:00','20:00','24:00'];
+function plotHist(){drawMulti('#chartHist',1000,340,HIST[$('#comboSel').value](),hrs,'Time (hh:mm, today)',{sw:1.8})}
+$('#plotHist').onclick=plotHist; plotHist();
+
+/* Fuel Efficiency: three stacked left axes, like the Edge Live plot */
+const EFF={
+  direct:()=>[
+    S('Boiler SFR (steam-to-fuel ratio)','Boiler SFR (t steam / t fuel)',4.5,5.5,'#3F2FA3','L',300,12),
+    S('Boiler fuel flow','Boiler fuel flow (kg/h)',1000,1600,'#2E7D32','L',300,14),
+    S('Direct heat output','Direct heat output (kcal/h)',3000000,4200000,'#47B5B5','L',300,16)],
+  indirect:()=>[
+    S('Indirect efficiency (GCV)','Indirect eff. GCV (%)',74,80,'#3F2FA3','L',300,12),
+    S('Indirect efficiency (NCV)','Indirect eff. NCV (%)',82,86,'#2E7D32','L',300,14),
+    S('Oxygen','Oxygen in flue gas (%)',8,13,'#47B5B5','L',300,16)]
+};
+function plotEff(){drawMulti('#chartEff',1000,360,EFF[$('#effSel').value](),hrs,'Time (hh:mm, today)',{sw:1.5})}
+$('#plotEff').onclick=plotEff; plotEff();
+
+/* Bar charts (Fuel Consumption tab) */
+function drawBars(id,vals,labels,color,yTitle,xTitle,ymax){
+  const w=500,h=260,pl=62,pr=12,pt=12,pb=48,pw=w-pl-pr,ph=h-pt-pb,T='#7D7D7D';
+  let s='';
+  for(let i=0;i<=4;i++){
+    const y=pt+ph*i/4, v=ymax*(1-i/4);
+    s+=`<line x1="${pl}" x2="${w-pr}" y1="${y}" y2="${y}" stroke="#D5D5D5"/>`;
+    s+=`<text x="${pl-6}" y="${y+3}" text-anchor="end" font-size="10" fill="${T}">${Math.round(v).toLocaleString('en-IN')}</text>`;
+  }
+  const bw=pw/vals.length;
+  vals.forEach((v,i)=>{
+    const bh=ph*v/ymax, x=pl+i*bw+bw*0.18;
+    s+=`<rect x="${x}" y="${pt+ph-bh}" width="${bw*0.64}" height="${bh}" fill="${color}"/>`;
+    s+=`<text x="${pl+i*bw+bw/2}" y="${pt+ph+15}" text-anchor="middle" font-size="10" fill="${T}">${labels[i]}</text>`;
+  });
+  s+=`<line x1="${pl}" x2="${pl}" y1="${pt}" y2="${pt+ph}" stroke="${T}"/><line x1="${pl}" x2="${w-pr}" y1="${pt+ph}" y2="${pt+ph}" stroke="${T}"/>`;
+  s+=`<text x="${pl+pw/2}" y="${h-6}" text-anchor="middle" font-size="12" fill="${T}">${xTitle}</text>`;
+  s+=`<text transform="translate(13 ${pt+ph/2}) rotate(-90)" text-anchor="middle" font-size="12" fill="${T}">${yTitle}</text>`;
+  $(id).innerHTML=s;
+}
+const days=['09 Oct','10 Oct','11 Oct','12 Oct','13 Oct','14 Oct','15 Oct'];
+drawBars('#chartCostFuel',[195000,201000,188000,207000,199000,210000,201565],days,'#4F7FBF','Cost of fuel (₹)','Date',250000);
+drawBars('#chartCostWater',[2950,3100,2800,3200,3050,3150,3082],days,'#4F7FBF','Cost of water (₹)','Date',4000);
+
+/* diagnostics (sample data) */
+const B=['30_40','40_50','50_60','60_70','70_80','80_90','90_100'];
+const dMean=[9.743,9.023,8.31,7.615,6.981,6.494,6.184];
+const aMed=[10,9.515,9.19,9.07,9.19,9.38,10.47];
+const dev=aMed.map((a,i)=>Math.abs(+(a-dMean[i]).toFixed(3)));
+const dot=v=>`<span class="dot ${v<1?'ok':'bad'}"></span>${v}`;
+table('#tblO2',['Bucket','Design Mean','Actual Mean','Design Median','Actual Median','Median Deviation'],
+  B.map((b,i)=>[b.replace('_','-'),dMean[i],(aMed[i]-.1).toFixed(3),(dMean[i]-.01).toFixed(3),aMed[i],dot(dev[i])]));
+table('#tblDamper',['Load Bucket','DesignMeanO2','ActualMedianO2','DeviationInMedianO2','ConsistencyInO2Deviation','RecommendationDamperSetting'],
+  B.map((b,i)=>[b,dMean[i],aMed[i],dot(dev[i]),aMed[i]>dMean[i]?'Higher':'Lower',aMed[i]>dMean[i]?'Close FD damper slightly':'Open FD damper slightly']));
+table('#tblFuel',['Load Bucket','Yesterday_O2_Deviation','Today_O2_Deviation','ChangeIn_O2','Recommendation'],
+  B.map((b,i)=>[b,(dev[i]-.5).toFixed(3),dev[i],(0.6+i*.1).toFixed(3),'Lower Calorific Value Fuel Detected']));
+table('#tblSFR',['Load_Bucket','Current_SFR','Previous_SFR','SFR_Loss_Gain'],
+  B.map((b,i)=>[b,(4.9+i*.005).toFixed(3),(4.88-i*.004).toFixed(3),(i%2?-.02:.05).toFixed(3)]));
+
+/* lookup (sample data) */
+const cur=[77.093,77.621,77.463,77.629,77.809,78.045,77.887];
+const prv=[76.886,77.194,77.171,77.232,77.176,77.085,76.522];
+table('#tblLookEff',['Load_Bucket','Current_O2','Previous_O2','Current_Efficiency','Previous_Efficiency','Efficiency_Loss_Gain'],
+  B.map((b,i)=>[b,(9.4-i*.1).toFixed(3),(9.2+i*.1).toFixed(3),cur[i],prv[i],(cur[i]-prv[i]).toFixed(3)]));
+table('#tblLookChg',['DeviceTime','LookUpTag','LookUpTagValue'],[
+  ['2026-10-15 1:48:00 AM','BOILER1_FD_DAMPER_Y4',14],['2026-10-15 1:48:00 AM','BOILER1_FD_DAMPER_Y5',16],
+  ['2026-10-14 11:20:00 PM','BOILER1_FD_DAMPER_Y3',10],['2026-10-14 9:57:00 PM','BOILER1_FD_DAMPER_Y4',14]]);
+
+table('#tblAlarms',['Time','Severity','Description','Status'],[
+  ['15 Oct 08:17','<span class="badge red">High</span>','Flue gas temperature high','In Progress'],
+  ['15 Oct 00:00','<span class="badge">Medium</span>','Data not entered for 1–14 Oct','In Progress'],
+  ['14 Oct 23:47','<span class="badge">Warning</span>','Oxygen level high','Escalated']]);
+</script>
+</body>
+</html>
